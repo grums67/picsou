@@ -10,9 +10,11 @@ import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+
+from src.technical_analysis import generate_technical_summary
 
 logger = logging.getLogger(__name__)
 
@@ -221,10 +223,51 @@ class PicsouBrain:
         # Self-reflection strategy rules (hot-reloaded from strategy_rules.json)
         self.strategy_rules: Dict[str, Any] = {}
 
+        # Trading knowledge base (loaded from YAML, injected into every prompt)
+        self.trading_knowledge: str = ""
+        self._load_trading_knowledge()
+
         # Write initial config file if it doesn't exist
         self._write_default_config()
 
     # ── Hot-reload config management ──────────────────────────────────────
+
+    def _load_trading_knowledge(self) -> None:
+        """Load trading knowledge base from YAML file for prompt injection."""
+        knowledge_path = Path(self.config_path).parent / "trading_knowledge.yaml" if self.config_path else Path("/root/PROJECTS/picsou/data/trading_knowledge.yaml")
+        if not knowledge_path.exists():
+            logger.warning("Trading knowledge file not found: %s", knowledge_path)
+            return
+        try:
+            import yaml
+            with open(knowledge_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            # Build a compact text representation for the prompt
+            lines = ["TRADING KNOWLEDGE BASE:"]
+            for section, content in data.items():
+                if isinstance(content, dict):
+                    lines.append(f"\n{section.upper().replace('_', ' ')}:")
+                    for name, details in content.items():
+                        if isinstance(details, dict):
+                            parts = [f"  {name}:"]
+                            for k, v in details.items():
+                                parts.append(f"    {k}: {v}")
+                            lines.append("\n".join(parts))
+                        else:
+                            lines.append(f"  {name}: {details}")
+                else:
+                    lines.append(f"{section}: {content}")
+            self.trading_knowledge = "\n".join(lines)
+            logger.info("Loaded trading knowledge base (%d chars)", len(self.trading_knowledge))
+        except ImportError:
+            # yaml not available, try reading as plain text
+            try:
+                self.trading_knowledge = knowledge_path.read_text(encoding="utf-8")
+                logger.info("Loaded trading knowledge as raw text (%d chars)", len(self.trading_knowledge))
+            except Exception as e:
+                logger.warning("Failed to load trading knowledge: %s", e)
+        except Exception as e:
+            logger.warning("Failed to load trading knowledge YAML: %s", e)
 
     def _write_default_config(self) -> None:
         """Write default llm_config.json if it doesn't exist."""
@@ -517,7 +560,8 @@ class PicsouBrain:
                       sentiment_headlines: List[str],
                       symbols: List[str],
                       risk_config: Any,
-                      research_insights: Optional[Dict[str, Any]] = None) -> str:
+                      research_insights: Optional[Dict[str, Any]] = None,
+                      tech_summary: str = "") -> str:
         """Build the full LLM prompt with all context."""
         # Build learning context section
         learning_section = ""
@@ -585,6 +629,7 @@ Note: In exploration mode, low Fear & Greed is an OPPORTUNITY for contrarian str
 CURRENT MARKET DATA:
 {self._summarize_market(market_data)}
 
+{tech_summary}
 PORTFOLIO STATE:
 {self._summarize_portfolio(portfolio_mgr)}
 
@@ -615,6 +660,8 @@ STRATEGY TYPES (use ONLY these — no other values allowed):
 - "contrarian": Counter-trend at extremes
 - "dca": Dollar-cost averaging entries
 - "risk_management": Hold/defensive decisions
+
+{self.trading_knowledge}
 
 OUTPUT FORMAT — respond with a JSON array of decisions. Each decision MUST have:
 - "action": "buy", "sell", or "hold"
@@ -649,11 +696,28 @@ If you decide to hold for all symbols, return an empty array []."""
         if self.news_enabled:
             headlines = fetch_crypto_headlines()
 
-        # 2. Build prompt (with optional research insights)
+        # 2. Generate technical analysis from candle data
+        tech_summary = ""
+        tech_indicators: Dict[str, Any] = {}
+        try:
+            candles_dict = {}
+            for key, data in market_data.items():
+                candles = data.get("candles", [])
+                symbol = data.get("base", key.split(":")[-1] if ":" in key else key)
+                if candles:
+                    candles_dict[symbol] = candles
+            if candles_dict:
+                tech_summary, tech_indicators = generate_technical_summary(candles_dict)
+                logger.info("Technical analysis generated for %d symbols", len(candles_dict))
+        except Exception as e:
+            logger.warning("Technical analysis generation failed: %s", e)
+
+        # 3. Build prompt (with technical analysis and research insights)
         prompt = self._build_prompt(
             market_data, portfolio_mgr, journal,
             fng, headlines, symbols, risk_config,
             research_insights=research_insights,
+            tech_summary=tech_summary,
         )
         self.last_prompt = prompt
 
@@ -723,7 +787,23 @@ If you decide to hold for all symbols, return an empty array []."""
             payload["response_format"] = {"type": "json_object"}
 
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=60)
+            # Retry logic: up to 2 retries with exponential backoff for cloud model timeouts
+            max_retries = 2
+            resp = None  # type: Optional[requests.Response]
+            for attempt in range(max_retries + 1):
+                try:
+                    resp = requests.post(url, headers=headers, json=payload, timeout=120)
+                    break
+                except requests.exceptions.Timeout:
+                    if attempt < max_retries:
+                        wait = 5 * (attempt + 1)
+                        logger.warning("LLM API call timeout (attempt %d/%d), retrying in %ds...", attempt + 1, max_retries + 1, wait)
+                        time.sleep(wait)
+                    else:
+                        raise
+            if resp is None:
+                logger.error("LLM API call failed: no response received after retries")
+                return None
             resp.raise_for_status()
             data = resp.json()
 

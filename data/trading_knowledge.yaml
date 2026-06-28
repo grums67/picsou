@@ -1,0 +1,336 @@
+# Picsou Trading Knowledge — Quick Reference for LLM Decision Cycles
+# Injected into system prompt. No prose, actionable facts only.
+
+candlestick_patterns:
+  doji:
+    signal: neutral/reversal
+    config: "Open ≈ Close, wicks both sides. Body < 10% of total range."
+    reliability: 60%
+    action: "If at support → bullish reversal. If at resistance → bearish reversal. Requires confirmation candle."
+
+  hammer:
+    signal: bullish_reversal
+    config: "Small body at top, long lower wick (≥2x body), little/no upper wick. Appears at downtrend bottom."
+    reliability: 65%
+    action: "Enter long on confirmation close above hammer body. Stop below wick low."
+
+  inverted_hammer:
+    signal: bullish_reversal
+    config: "Small body at bottom, long upper wick (≥2x body), little/no lower wick. Appears at downtrend bottom."
+    reliability: 55%
+    action: "Needs next candle confirmation (strong bullish close). Higher false signal rate than hammer."
+
+  hanging_man:
+    signal: bearish_reversal
+    config: "Same shape as hammer but appears at uptrend top."
+    reliability: 60%
+    action: "Exit longs or enter short on confirmation. Stop above wick high."
+
+  engulfing_bullish:
+    signal: bullish_reversal
+    config: "Prior red candle fully engulfed by larger green candle. Appears at downtrend bottom."
+    reliability: 70%
+    action: "Enter long at close of engulfing candle. Stop below engulfing candle low."
+
+  engulfing_bearish:
+    signal: bearish_reversal
+    config: "Prior green candle fully engulfed by larger red candle. Appears at uptrend top."
+    reliability: 70%
+    action: "Exit longs / enter short. Stop above engulfing candle high."
+
+  morning_star:
+    signal: bullish_reversal
+    config: "3-candle: large red → small body (gap down) → large green (gap up, closes > 50% of 1st candle)."
+    reliability: 75%
+    action: "Strong reversal signal. Enter long at candle 3 close. Stop below candle 2 low."
+
+  evening_star:
+    signal: bearish_reversal
+    config: "3-candle: large green → small body (gap up) → large red (gap down, closes < 50% of 1st candle)."
+    reliability: 75%
+    action: "Exit longs / enter short. Stop above candle 2 high."
+
+  shooting_star:
+    signal: bearish_reversal
+    config: "Small body at bottom, long upper wick (≥2x body), little/no lower wick. At uptrend top."
+    reliability: 65%
+    action: "Enter short on confirmation. Stop above wick high."
+
+  spinning_top:
+    signal: neutral/indecision
+    config: "Small body, roughly equal wicks on both sides. Body < 25% of range."
+    reliability: 40%
+    action: "No action alone. Wait for next candle direction. If after strong trend → potential reversal."
+
+  marubozu:
+    signal: strong_continuation
+    config: "No wicks (or minimal). Body = entire range. Green = extreme bullish, Red = extreme bearish."
+    reliability: 70%
+    action: "Trade in direction of marubozu. High conviction continuation signal."
+
+  three_white_soldiers:
+    signal: bullish_reversal
+    config: "3 consecutive green candles, each opening within prior body, closing progressively higher."
+    reliability: 75%
+    action: "Enter long. Stop below first candle low. Beware overextension."
+
+  three_black_crows:
+    signal: bearish_reversal
+    config: "3 consecutive red candles, each opening within prior body, closing progressively lower."
+    reliability: 75%
+    action: "Enter short. Stop above first candle high. Beware oversold bounce."
+
+  harami_bullish:
+    signal: bullish_reversal
+    config: "Large red candle → small green candle contained within prior body. At downtrend bottom."
+    reliability: 55%
+    action: "Weaker than engulfing. Requires confirmation. Stop below mother candle low."
+
+  harami_bearish:
+    signal: bearish_reversal
+    config: "Large green candle → small red candle contained within prior body. At uptrend top."
+    reliability: 55%
+    action: "Weaker than engulfing. Requires confirmation. Stop above mother candle high."
+
+  piercing_line:
+    signal: bullish_reversal
+    config: "Red candle → green candle opens below prior low, closes above 50% of prior body. At downtrend bottom."
+    reliability: 65%
+    action: "Enter long at close. Stop below green candle low."
+
+  dark_cloud_cover:
+    signal: bearish_reversal
+    config: "Green candle → red candle opens above prior high, closes below 50% of prior body. At uptrend top."
+    reliability: 65%
+    action: "Exit longs / enter short. Stop above red candle high."
+
+  tweezer_top:
+    signal: bearish_reversal
+    config: "Two candles with matching highs. At uptrend top."
+    reliability: 55%
+    action: "Confirmation required. Stop above matching highs."
+
+  tweezer_bottom:
+    signal: bullish_reversal
+    config: "Two candles with matching lows. At downtrend bottom."
+    reliability: 55%
+    action: "Confirmation required. Stop below matching lows."
+
+strategies:
+  momentum:
+    description: "Follow strong directional moves. Buy strength, sell weakness."
+    entry: "RSI > 60 + MACD bullish crossover + price above VWAP. Volume confirmation required."
+    exit: "RSI divergence, MACD bearish crossover, or trailing stop 1.5× ATR."
+    timeframes: ["1h", "4h", "1d"]
+    win_rate: 45-55%
+    risks: "Whipsaws in ranging markets. Late entries lead to poor R:R."
+
+  mean_reversion:
+    description: "Price returns to mean after extreme deviation."
+    entry: "RSI < 20 or > 80. Price > 2σ from Bollinger midband. Stochastic extreme oversold/overbought."
+    exit: "Price returns to Bollinger midband or RSI crosses back through 40/60."
+    timeframes: ["15m", "1h", "4h"]
+    win_rate: 55-65%
+    risks: "Trending markets ignore extremes indefinitely. No guarantee of mean return in regime shifts."
+
+  breakout:
+    description: "Enter when price breaks key S/R with volume conviction."
+    entry: "Price closes beyond S/R level + volume ≥ 150% avg + RSI confirming direction."
+    exit: "Measured move target (= range of consolidation) or retest of broken level as S/R flip."
+    timeframes: ["1h", "4h", "1d"]
+    win_rate: 40-50%
+    risks: "False breakouts (60%+ in crypto). Always wait for close confirmation. Avoid low-volume breaks."
+
+  contrarian:
+    description: "Fade extreme moves when sentiment is one-sided."
+    entry: "Funding rate extreme (>0.1% or <-0.05%). RSI < 15 or > 85. Sentiment at extremes."
+    exit: "Mean reversion target. Quick profit taking at 50% of the move being faded."
+    timeframes: ["1h", "4h"]
+    win_rate: 35-45%
+    risks: "Can catch falling knives. Position size must be small. Strict stop required."
+
+  DCA:
+    description: "Fixed amount at fixed intervals regardless of price. Reduces timing risk."
+    entry: "Schedule-based (daily/weekly). Optionally: increase allocation when price drops (value averaging)."
+    exit: "Take profit at predetermined ROI targets (e.g., +30%, +50%, +100%). Sell portions incrementally."
+    timeframes: ["1d", "1w"]
+    win_rate: 70-80% (long-term bullish assets)
+    risks: "Drawdowns can be deep and extended. Requires conviction in long-term thesis. Opportunity cost."
+
+  swing_trading:
+    description: "Capture multi-day moves using S/R and trend structure."
+    entry: "Pullback to support in uptrend (or resistance in downtrend) + reversal candlestick pattern."
+    exit: "Opposite S/R level or R:R target (minimum 1:2). Trailing stop at swing lows/highs."
+    timeframes: ["4h", "1d"]
+    win_rate: 45-55%
+    risks: "Overnight gaps. Exchange downtime. Requires patience. Misidentifying trend direction."
+
+  scalping:
+    description: "High-frequency small-profit trades on micro-moves."
+    entry: "Order book imbalance + tight spread + 1m/5m momentum alignment with higher TF."
+    exit: "0.3-0.5% targets. Stop 0.15-0.25%. Quick in-and-out."
+    timeframes: ["1m", "5m"]
+    win_rate: 55-65%
+    risks: "Fees eat profits. Requires low-spread pairs. Latency-sensitive. High stress."
+
+  grid_trading:
+    description: "Place buy/sell orders at preset intervals creating a grid around current price."
+    entry: "Set grid above and below current price. Interval = ATR-based or fixed %. Buy low, sell high automatically."
+    exit: "Grid completes cycle or take profit at upper grid bound. Manual exit if trend breaks grid range."
+    timeframes: ["range-bound markets", "15m-4h"]
+    win_rate: 60-70% (in ranging markets)
+    risks: "Losses accumulate in trending markets. Requires capital allocation across many orders. Exchange fees."
+
+risk_management:
+  position_sizing:
+    kelly_criterion_simplified: "f = (p×w - (1-p)) / w, where p=win_rate, w=win/loss_ratio. Use half-Kelly for safety."
+    fixed_fractional: "Risk 1-2% of portfolio per trade. Position size = (portfolio × risk%) / (entry - stop_loss)."
+    max_single_position: "≤5% of total portfolio value per single asset."
+    max_correlated_positions: "≤10% in correlated assets (e.g., all Layer-1s count as correlated)."
+  stop_loss_rules:
+    default: "1.5-2× ATR from entry for volatile assets. 1× ATR for calm markets."
+    hard_stop: "Never move stop beyond 3% of portfolio per trade."
+    time_stop: "Close position if no movement after 3× expected hold time."
+    trailing: "Trail at swing low/high for swing trades. Trail at 1.5× ATR for momentum."
+  take_profit:
+    minimum_risk_reward: "1:2 entry minimum. Target 1:3 for high-conviction setups."
+    partial_profit: "Take 50% at 1:2 R:R. Move stop to breakeven. Let remainder run."
+    scale_out: "Sell 1/3 at each R:R milestone (1:2, 1:3, 1:4+)."
+  drawdown_limits:
+    daily_max_loss: "3% of portfolio. Halt all trading if hit."
+    weekly_max_loss: "6% of portfolio. Reduce position sizes by 50% if hit."
+    monthly_max_loss: "10% of portfolio. Full strategy review required."
+    recovery_mode: "After max drawdown hit, halve position sizes until portfolio recovers 50% of loss."
+  correlation_risk:
+    rule: "BTC drives 70%+ of crypto correlation. When BTC dumps, alts dump harder."
+    action: "Monitor BTC dominance. Reduce alt exposure when BTC volatility spikes."
+  max_exposure:
+    total_open_risk: "Sum of all position risks ≤ 8% of portfolio."
+    single_exchange: "≤30% of portfolio on any single exchange."
+    leverage: "No leverage > 3×. No leverage on low-liquidity pairs."
+
+technical_indicators:
+  RSI:
+    what_to_watch: "Overbought >70, oversold <30. Divergence = price makes new high/low but RSI doesn't."
+    buy_signal: "Oversold bounce (<30) + bullish divergence + RSI crosses back above 30."
+    sell_signal: "Overbought rejection (>70) + bearish divergence + RSI crosses below 70."
+    pitfalls: "In strong trends RSI can stay >70 or <30 for extended periods. Divergence alone is not a signal—wait for RSI cross confirmation."
+  MACD:
+    what_to_watch: "MACD line, signal line, histogram. Zero line = trend direction."
+    buy_signal: "Bullish crossover (MACD > signal) below zero line. Histogram turning positive."
+    sell_signal: "Bearish crossover (MACD < signal) above zero line. Histogram turning negative."
+    pitfalls: "Lagging indicator. Many false signals in ranging markets. Combine with trend filter (e.g., price above/below 200 EMA)."
+  bollinger_bands:
+    what_to_watch: "Price relative to bands. Band width (squeeze = low vol, expansion = high vol)."
+    buy_signal: "Price touches lower band + RSI oversold = potential bounce. Squeeze breakout upward."
+    sell_signal: "Price touches upper band + RSI overbought = potential rejection. Squeeze breakout downward."
+    pitfalls: "Price can walk the band for extended periods. Touch ≠ reversal signal without confirmation."
+  stochastic:
+    what_to_watch: "%K and %D lines. Overbought >80, oversold <20."
+    buy_signal: "%K crosses above %D in oversold zone (<20). Bullish divergence."
+    sell_signal: "%K crosses below %D in overbought zone (>80). Bearish divergence."
+    pitfalls: "Extremely lagging in strong trends. Use slow stochastic (%K=14, %D=3) for crypto."
+  ATR:
+    what_to_watch: "Average True Range = volatility measure. Rising ATR = increasing volatility."
+    buy_signal: "Not a directional signal. Use for: stop placement (1.5-2× ATR), position sizing, breakout confirmation (candle range > 1.5× ATR)."
+    sell_signal: "N/A. Use for: trailing stops, breakout filters."
+    pitfalls: "ATR is absolute—not relative to price. Compare ATR/price for cross-asset volatility comparison."
+  volume_profile:
+    what_to_watch: "High volume nodes (HVN = S/R), low volume nodes (LVN = price gaps). POC = point of control."
+    buy_signal: "Price at HVN support + volume increasing on up candles = accumulation zone entry."
+    sell_signal: "Price at HVN resistance + volume increasing on down candles = distribution zone exit."
+    pitfalls: "Volume profile is static snapshot. Needs regular recalculation. Low volume periods produce unreliable profiles."
+  OBV:
+    what_to_watch: "On-Balance Volume trend vs price trend. Divergence = key signal."
+    buy_signal: "OBV rising while price flat/falling = accumulation. OBV breaks its own trendline upward."
+    sell_signal: "OBV falling while price flat/rising = distribution. OBV breaks its own trendline downward."
+    pitfalls: "Gaps and big wicks distort OBV. Use with price structure, not in isolation."
+  VWAP:
+    what_to_watch: "Volume-Weighted Average Price. Price above = bullish bias, below = bearish bias."
+    buy_signal: "Price pulls back to VWAP in uptrend + reversal candlestick = entry."
+    sell_signal: "Price rejects VWAP from below in downtrend = short entry."
+    pitfalls: "VWAP resets daily. Intraday indicator only on daily timeframe. Extended hours distort it."
+  fibonacci_retracement:
+    what_to_watch: "Key levels: 0.382, 0.5, 0.618, 0.786. Draw from swing low to high (uptrend) or high to low (downtrend)."
+    buy_signal: "Price retraces to 0.618-0.786 zone in uptrend + reversal candle = golden zone entry."
+    sell_signal: "Price rejects 0.382-0.5 zone in downtrend = short entry."
+    pitfalls: "Multiple valid swing points produce conflicting levels. Self-fulfilling prophecy makes 0.618 crowded."
+  ichimoku:
+    what_to_watch: "Cloud (kumo), Tenkan-sen (9), Kijun-sen (26), Chikou span. Cloud thickness = S/R strength."
+    buy_signal: "Price above cloud + Tenkan > Kijun + Chikou above price = strong bullish."
+    sell_signal: "Price below cloud + Tenkan < Kijun + Chikou below price = strong bearish."
+    pitfalls: "Lagging by design (26-period cloud forward). Not useful for scalping. Crypto needs adjusted settings (20/60/120/30)."
+
+market_structure:
+  support_resistance:
+    definition: "Price levels where buying (support) or selling (resistance) has historically halted moves."
+    identification: "Multiple touches (≥3), volume increase at level, round numbers. S/R flip = broken resistance becomes support."
+    action: "Buy at support, sell at resistance. Place stops just beyond the level."
+  trendlines:
+    definition: "Diagonal S/R connecting swing points. Uptrend = higher lows. Downtrend = lower highs."
+    action: "3 touches = valid trendline. Enter on 3rd touch. Stop beyond trendline."
+  higher_highs_lower_lows:
+    uptrend: "HH + HL sequence. Buy pullbacks to prior HL. Break of last HL = trend change signal."
+    downtrend: "LH + LL sequence. Sell rallies to prior LH. Break of last LH = trend change signal."
+    range: "Equal highs and lows. Trade S/R bounces or await breakout."
+  liquidity_zones:
+    definition: "Areas where many stop-losses cluster (above equal highs, below equal lows)."
+    action: "Price often hunts these zones before reversing. Don't place stops at obvious levels. Fade the sweep if reversal confirmed."
+  order_blocks:
+    definition: "Last bearish candle before strong bullish move (demand block) or last bullish candle before strong drop (supply block)."
+    action: "Enter at order block after price returns to it. Stop beyond block. High-probability entry zone."
+  fair_value_gaps:
+    definition: "3-candle pattern where candle 1 high and candle 3 low don't overlap = gap in price discovery."
+    action: "Price tends to fill FVGs. Buy at bullish FVG bottom, sell at bearish FVG top. Unfilled FVGs = magnets."
+  market_phases:
+    accumulation: "Sideways after decline. Smart money buying. Volume declining. Break of accumulation range = markup start."
+    markup: "Uptrend. HH/HL structure. Increasing volume on up moves. Pullbacks shallow."
+    distribution: "Sideways after advance. Smart money selling. Volume increasing on down candles. Break of distribution range = markdown start."
+    markdown: "Downtrend. LH/LL structure. Increasing volume on down moves. Bounces shallow."
+
+order_book_and_liquidity:
+  bid_ask_spread:
+    definition: "Difference between highest bid and lowest ask. Tight spread = high liquidity."
+    action: "Wide spread (>0.1% for majors) = poor execution, use limit orders. Tight spread = market orders acceptable."
+  depth:
+    definition: "Volume available at each price level. Thick order book = less slippage."
+    action: "Check depth before entering large positions. Thin book = expect slippage. Scale into large positions."
+  iceberg_orders:
+    definition: "Large orders split into smaller visible portions. Only tip of iceberg visible."
+    detection: "Repeated small fills at same price level without order book showing large size = iceberg."
+    action: "Iceberg walls act as strong S/R. Don't try to break through—respect them as levels."
+  slippage:
+    definition: "Difference between expected and actual fill price."
+    estimation: "Slippage ≈ (order_size / depth_at_1%) × 1%. For large orders: walk the book."
+    mitigation: "Use limit orders. Split large orders. Trade high-liquidity pairs. Avoid market orders > 0.1% of daily volume."
+  execution_impact:
+    rule: "Market orders move price against you. Limit orders provide S/R but may not fill."
+    action: "Urgent entry = market order with slippage budget. Patient entry = limit at S/R level. Calculate total cost = fees + slippage."
+
+crypto_specifics:
+  funding_rates:
+    definition: "Perpetual swap funding rate. Positive = longs pay shorts (bullish bias). Negative = shorts pay longs (bearish bias)."
+    signals: "Extreme positive (>0.1%) = overleveraged longs → potential short squeeze or dump. Extreme negative (<-0.05%) = overleveraged shorts → potential squeeze."
+    action: "Fade extremes. Use as contrarian signal. Combine with price structure for timing."
+  liquidation_cascades:
+    definition: "Chain reaction: price drop → long liquidations → more selling → more liquidations."
+    identification: "Rapid price wicks with high volume + spike in liquidation stats = cascade."
+    action: "Don't catch falling knives during cascade. Wait for volume exhaustion. Buy the bounce after cascade completes."
+  whale_movements:
+    definition: "Large transfers (≥100 BTC or ≥$1M) to/from exchanges."
+    signals: "Whale deposit to exchange → potential selling pressure. Whale withdrawal → accumulation."
+    action: "Monitor via blockchain explorers. Not all whale moves = selling. Cross-reference with on-chain data."
+  on_chain_metrics:
+    active_addresses: "Rising = network growth = bullish. Declining = loss of interest = bearish."
+    exchange_reserves: "Declining reserves = accumulation (bullish). Rising reserves = distribution (bearish)."
+    MVRV_zscore: ">7 = overvalued (sell zone). <0 = undervalued (buy zone). Normal range 1-3."
+    NUPL: "Net Unrealized Profit/Loss. >0.75 = euphoria (sell). <0 = capitulation (buy)."
+  halving_effects:
+    definition: "BTC supply issuance halves every ~4 years. Historically bullish 6-18 months post-halving."
+    action: "Accumulate 6 months before halving. Expect increased volatility. Not guaranteed to repeat."
+    caveat: "Each halving has diminishing impact as block reward shrinks relative to total supply."
+  btc_alt_correlation:
+    rule: "Alts correlate 70-90% with BTC directionally but amplify moves (2-5× BTC volatility)."
+    action: "Check BTC trend before alt trades. In BTC dumps, alts fall harder. In BTC pumps, alts lag then explode."
+    altseason: "BTC dominance dropping + alts/BTC rising = altseason. Shift allocation to alts."
+    risk: "In risk-off, BTC/alt correlation goes to 1. Diversification fails in crashes."
