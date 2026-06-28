@@ -1,40 +1,41 @@
 # 🪙 Picsou — Agent de Trading Crypto Autonome
 
-**Agent de paper-trading auto-apprenant** qui utilise un cerveau LLM, des données de marché en temps réel, l'analyse de sentiment et la recherche web de stratégies pour trader les cryptomonnaies en autonomie.
+**Agent de paper-trading auto-apprenant** qui utilise un cerveau LLM, des données de marché en temps réel, l'analyse de sentiment et la recherche web de stratégies pour trader les cryptomonnaies en autonomie. Inclut un **module d'auto-réflexion** : Picsou analyse ses propres performances et génère des règles d'amélioration injectées dans ses décisions futures.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────┐
-│                  Agent Picsou                      │
-│                (boucle run_once)                   │
-├──────────┬──────────┬──────────┬─────────────────┤
-│  Marché  │  Cerveau │ Apprent. │   Recherche      │
-│  (3 exh) │  (LLM)   │  (poids) │   web             │
-│          │          │          │  DuckDuckGo +     │
-│          │          │          │  CoinGecko +       │
-│          │          │          │  CryptoCompare    │
-├──────────┴──────────┴──────────┴─────────────────┤
-│         Gestionnaire de Portfolio (paper trading) │
-│         Journal de Décisions (JSONL)              │
-│         Dashboard (FastAPI + PWA)                 │
-└──────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                     Agent Picsou                           │
+│                   (boucle run_once)                         │
+├──────────┬──────────┬──────────┬──────────┬──────────────┤
+│  Marché  │  Cerveau │ Apprent. │ Recherch │ Auto-Réflex. │
+│  (3 exh) │  (LLM)   │  (poids) │   web    │  (SelfReflect)│
+│          │          │          │ DDG+CG   │  Règles LLM   │
+│          │          │          │ +CC      │  → prompt      │
+├──────────┴──────────┴──────────┴──────────┴──────────────┤
+│         Gestionnaire de Portfolio (paper trading)         │
+│         Journal de Décisions (JSONL)                      │
+│         Dashboard (FastAPI + PWA)                         │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ## Comment ça marche
 
-### Cycle de trading (toutes les 15 min)
+### Cycle de trading (toutes les 5 min)
 
 1. **Récupérer les données marché** — Prix BTC, ETH, SOL, chandeliers et carnets d'ordres depuis OKX, Kraken, Bitstamp
 2. **Récupérer le sentiment** — Fear & Greed Index + titres crypto
 3. **Rechercher des insights** — Recherche DuckDuckGo + tendances CoinGecko + analyses CryptoCompare
-4. **Décision LLM** — Le cerveau analyse l'ensemble et produit des décisions structurées achat/vente/hold avec type de stratégie et raisonnement
-5. **Exécuter les trades** — Ouverture/fermeture de positions (paper trading)
-6. **Apprendre** — Évaluer les performances par stratégie, ajuster les poids, éliminer les sous-performantes
+4. **Charger les règles auto-apprises** — Injection des règles de `strategy_rules.json` dans le prompt LLM
+5. **Décision LLM** — Le cerveau analyse l'ensemble et produit des décisions structurées achat/vente/hold avec type de stratégie et raisonnement
+6. **Exécuter les trades** — Ouverture/fermeture de positions (paper trading), avec ajustements de taille selon les règles auto-apprises
+7. **Apprendre** — Évaluer les performances par stratégie, ajuster les poids, éliminer les sous-performantes
+8. **Auto-réflexion** (toutes les ~4h, après 20+ trades fermés) — Le LLM analyse l'historique et génère de nouvelles règles d'amélioration
 
 ### Système d'apprentissage
 
-Picsou évalue **6 catégories de stratégies** que le LLM assigne à ses propres décisions :
+Picsou évalue les **catégories de stratégies** que le LLM assigne à ses propres décisions :
 
 | Stratégie | Description |
 |---|---|
@@ -55,6 +56,23 @@ Picsou évalue **6 catégories de stratégies** que le LLM assigne à ses propre
 - Les nouvelles stratégies non testées reçoivent des petits trades forcés (2% du capital) pour collecter des données
 - Les stratégies avec < 3 trades sont **protégées contre l'élimination**
 - L'exploration se désactive automatiquement quand toutes les stratégies ont suffisamment de données
+
+### Auto-réflexion (SelfReflect)
+
+**Le cœur de l'auto-amélioration** — Picsou n'apprend pas seulement des poids, il **réfléchit** sur ses performances :
+
+- **Quand ?** Toutes les 48 cycles (~4h), uniquement après **20+ trades fermés** (pas de réflexion sans données)
+- **Comment ?** Le module `SelfReflect` envoie au LLM l'historique complet (trades, PnL, win rates, conditions marché) et lui demande d'analyser ce qui marche, ce qui rate, et pourquoi
+- **Résultat ?** Des règles concrètes sauvées dans `strategy_rules.json` :
+  - Règles de marché (*"En marché très peureux (F&G < 25), privilégier contrarian"*)
+  - Ajustements de poids (*"boost contrarian +15%, pénaliser momentum -10%"*)
+  - Paramètres de risque (*"Taille de position 3% au lieu de 5% quand win rate < 40%"*)
+- **Injection** — Ces règles sont lues à chaque cycle et injectées dans le prompt LLM + appliquées dans les décisions (taille de position, skip de stratégies pénalisées)
+- **Hot-reload** — Pas besoin de redémarrer, les règles sont relues depuis le fichier à chaque cycle
+
+```
+trade → évalue → réfléchit → génère règles → injecte prompt → trade mieux
+```
 
 ### Recherche d'insights (source web)
 
@@ -89,8 +107,13 @@ max_drawdown_pct = 0.20         # Pause à 20% de drawdown
 # Apprentissage
 min_trades = 5                  # Trades min avant d'évaluer une stratégie
 min_exploration_trades = 3      # Trades min avant qu'une stratégie puisse être éliminée
-exploration_phase = True        # Forcer l'exploration des stratégies non testées
+exploration_phase = True         # Forcer l'exploration des stratégies non testées
 exploration_position_pct = 0.02 # 2% de position pour les trades d'exploration
+
+# Auto-réflexion
+# Se déclenche après 48 cycles (~4h) ET 20+ trades fermés
+# Règles sauvées dans data/strategy_rules.json
+# Bornes : weight_boost max +0.20, weight_penalty max -0.30
 
 # Recherche
 research_enabled = True
@@ -126,7 +149,8 @@ Service : `systemctl status picsou-dashboard`
 picsou/
 ├── src/
 │   ├── picsou.py              # Boucle principale de l'agent
-│   ├── brain.py               # Moteur de décision LLM
+│   ├── brain.py               # Moteur de décision LLM (+ injection règles)
+│   ├── self_reflect.py        # Auto-réflexion (analyse performances → règles)
 │   ├── config.py              # Configuration
 │   ├── portfolio.py           # Gestionnaire de portefeuille
 │   ├── journal.py             # Journal de décisions
@@ -152,8 +176,10 @@ picsou/
 │   ├── journal.jsonl
 │   ├── learning.json
 │   ├── brain_status.json
+│   ├── strategy_rules.json    # Règles auto-apprises (hot-reload)
 │   └── research_cache.json
 ├── run_agent.py               # Lanceur CLI
+├── picsou_self_improve.py     # Script standalone d'analyse manuelle
 ├── run.sh                     # Lanceur shell
 └── requirements.txt
 ```
@@ -181,6 +207,7 @@ bash run.sh
 - **Drawdown max 20%** — le trading se met en pause automatiquement
 - **Pas de clés de retrait** — les clés API sont trade uniquement
 - **Données gitignored** — aucun secret ni données de portfolio dans git
+- **Bornes d'auto-réflexion** — poids limités à [0.05, 0.50], température [0.1, 0.7], pas de modification de portfolio
 
 ## Licence
 
