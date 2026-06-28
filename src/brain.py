@@ -214,6 +214,11 @@ class PicsouBrain:
         self.connected: bool = False  # LLM connection status
         self.total_tokens_used = 0
 
+        # Exploration mode context (set by PicsouAgent before each cycle)
+        self.exploration_mode: bool = False
+        self.underexplored_strategies: List[str] = []
+        self.learning_context: Optional[Dict[str, Any]] = None
+
         # Write initial config file if it doesn't exist
         self._write_default_config()
 
@@ -402,6 +407,40 @@ class PicsouBrain:
 
         return "\n".join(parts)
 
+    def _summarize_research(self, research_insights: Optional[Dict[str, Any]]) -> str:
+        """Build a research insights section for the LLM prompt.
+
+        Injects web-sourced strategy insights, technical signals, and
+        risk factors as supplementary context for decision-making.
+        """
+        if not research_insights:
+            return ""
+
+        lines = ["\nRESEARCH INSIGHTS (web-sourced, for context only):"]
+
+        narrative = research_insights.get("market_narrative", "")
+        if narrative:
+            lines.append(f"  Market narrative: {narrative}")
+
+        trending = research_insights.get("trending_strategies", [])
+        if trending:
+            lines.append(f"  Trending strategies: {', '.join(trending)}")
+
+        signals = research_insights.get("technical_signals", [])
+        if signals:
+            lines.append(f"  Technical signals mentioned online: {', '.join(signals)}")
+
+        risks = research_insights.get("risk_factors", [])
+        if risks:
+            for r in risks[:3]:
+                lines.append(f"  Risk: {r}")
+
+        lines.append(
+            "  Consider these research-backed strategies alongside your own analysis."
+        )
+
+        return "\n".join(lines)
+
     # ── Prompt builder ─────────────────────────────────────────────────
 
     def _build_prompt(self, market_data: Dict[str, Dict[str, Any]],
@@ -410,10 +449,68 @@ class PicsouBrain:
                       sentiment_fng: Dict[str, Any],
                       sentiment_headlines: List[str],
                       symbols: List[str],
-                      risk_config: Any) -> str:
+                      risk_config: Any,
+                      research_insights: Optional[Dict[str, Any]] = None) -> str:
         """Build the full LLM prompt with all context."""
+        # Build learning context section
+        learning_section = ""
+        if self.learning_context:
+            scores = self.learning_context.get("strategy_scores", {})
+            active = self.learning_context.get("active_strategies", [])
+            underexplored = self.learning_context.get("underexplored_strategies", [])
+
+            if scores:
+                learning_lines = ["CURRENT STRATEGY PERFORMANCE:"]
+                for name, info in scores.items():
+                    status = "ACTIVE" if info["active"] else "ELIMINATED"
+                    learning_lines.append(
+                        f"  - {name}: win_rate={info['win_rate']:.0%}, "
+                        f"trades={info['total_trades']}, weight={info['weight']:.2f} [{status}]"
+                    )
+                learning_section = "\n".join(learning_lines) + "\n"
+
+            if active:
+                learning_section += f"\nActive strategies: {', '.join(active)}\n"
+
+        # Build exploration directive
+        exploration_directive = ""
+        if self.exploration_mode and self.underexplored_strategies:
+            strategies_str = ", ".join(self.underexplored_strategies)
+            exploration_directive = f"""
+⚠️ EXPLORATION PHASE — MANDATORY TRADING DIRECTIVE ⚠️
+You are in LEARNING/EXPLORATION mode. The following strategies have insufficient trade data
+and MUST be tested: [{strategies_str}]
+
+You MUST place at least one small trade (amount_pct: 0.02-0.05) for EACH under-explored strategy.
+This is critical for learning — without trade data, we cannot evaluate strategy performance.
+
+DO NOT return an empty array []. Even in uncertain market conditions, small exploratory positions
+are required. Use:
+- "contrarian": Buy when fear is high (counter-trend)
+- "breakout": Buy when price breaks above recent resistance
+- "dca": Dollar-cost average into positions
+- "mean_reversion": Trade against overextended moves
+- "momentum": Follow the current trend direction
+
+LOW Fear & Greed (< 30) is NOT a reason to hold in exploration mode — it's actually an opportunity
+for contrarian/DCA strategies. Fear creates buying opportunities.
+"""
+
+        # Fear & Greed context adjustment for exploration
+        fng_context = ""
+        if sentiment_fng:
+            fng_val = sentiment_fng.get("value", 50)
+            fng_cls = sentiment_fng.get("classification", "Neutral")
+            if self.exploration_mode:
+                fng_context = f"""Fear & Greed Index: {fng_val}/100 ({fng_cls})
+Note: In exploration mode, low Fear & Greed is an OPPORTUNITY for contrarian strategies, not a reason to hold."""
+            else:
+                fng_context = f"""Fear & Greed Index: {fng_val}/100 ({fng_cls})"""
+
         return f"""You are Picsou, an autonomous crypto trading agent. Analyze the current market conditions, sentiment, and portfolio state, then decide what actions to take.
 
+{learning_section}
+{exploration_directive}
 CURRENT MARKET DATA:
 {self._summarize_market(market_data)}
 
@@ -425,7 +522,8 @@ RECENT DECISIONS (last 5):
 
 MARKET SENTIMENT:
 {self._summarize_sentiment(sentiment_fng, sentiment_headlines)}
-
+{fng_context}
+{self._summarize_research(research_insights)}
 RISK RULES:
 - Max 20% of capital per position
 - Max 5 open positions simultaneously
@@ -437,8 +535,7 @@ CRITICAL TRADING RULES:
 1. MINIMUM HOLD TIME: You MUST hold positions for at least 15 minutes before selling. Rapid round-trips (buy then sell within minutes) ALWAYS lose money because trading fees eat the tiny price moves. Selling before 15 min is REJECTED by the system.
 2. FEE AWARENESS: Each trade pays 0.08-0.26% in fees (OKX 0.08%, Kraken 0.26%, Bitstamp 0.25%). A round-trip costs 0.16-0.52% in fees alone. Only trade if you expect a move larger than 1% to cover fees and profit.
 3. MINIMUM EXPECTED MOVE: Do NOT buy unless you expect at least 1.5% price movement. Small micro-moves (<0.5%) are noise, not actionable signals.
-4. EXTREME FEAR: When Fear & Greed < 25, the market is in extreme fear. Prices are volatile and unpredictable. Prefer HOLD unless you see a clear, strong reversal signal with >2% expected move.
-5. ONLY SELL WHAT YOU HOLD: You can only sell assets you currently have open positions in. Check the portfolio state above for your open positions.
+4. ONLY SELL WHAT YOU HOLD: You can only sell assets you currently have open positions in. Check the portfolio state above for your open positions.
 
 STRATEGY TYPES (use ONLY these — no other values allowed):
 - "momentum": Trend-following trades
@@ -457,9 +554,7 @@ OUTPUT FORMAT — respond with a JSON array of decisions. Each decision MUST hav
 - "reasoning": detailed explanation of WHY you chose this action (1-3 sentences, include expected move direction and magnitude)
 - "strategy_type": one of: momentum, mean_reversion, breakout, contrarian, dca, risk_management
 
-If you decide to hold for all symbols, return an empty array [].
-
-IMPORTANT: Only output valid JSON. No markdown, no explanation outside JSON."""
+If you decide to hold for all symbols, return an empty array []."""
 
     # ── LLM call ──────────────────────────────────────────────────────
 
@@ -468,7 +563,8 @@ IMPORTANT: Only output valid JSON. No markdown, no explanation outside JSON."""
                   portfolio_mgr: Any,
                   journal: Any,
                   symbols: List[str],
-                  risk_config: Any = None) -> List[Dict[str, Any]]:
+                  risk_config: Any = None,
+                  research_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Send context to the LLM and get structured decisions back.
 
         Returns a list of decision dicts. Falls back to EMA crossover
@@ -482,10 +578,11 @@ IMPORTANT: Only output valid JSON. No markdown, no explanation outside JSON."""
         if self.news_enabled:
             headlines = fetch_crypto_headlines()
 
-        # 2. Build prompt
+        # 2. Build prompt (with optional research insights)
         prompt = self._build_prompt(
             market_data, portfolio_mgr, journal,
             fng, headlines, symbols, risk_config,
+            research_insights=research_insights,
         )
         self.last_prompt = prompt
 
@@ -640,7 +737,7 @@ IMPORTANT: Only output valid JSON. No markdown, no explanation outside JSON."""
                 d.setdefault("reasoning", "LLM decision (no reasoning provided)")
                 # Validate strategy_type against whitelist
                 VALID_STRATEGIES = {"momentum", "mean_reversion", "breakout",
-                                    "contrarian", "dca", "risk_management"}
+                                    "contrarian", "dca", "risk_management", "llm_driven"}
                 strategy_type = d.get("strategy_type", "risk_management")
                 if strategy_type not in VALID_STRATEGIES:
                     # Map unknown types to closest match or default to risk_management

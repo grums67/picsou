@@ -21,6 +21,7 @@ from .exchanges.base import BaseExchange
 from .journal import DecisionJournal
 from .learning import LearningEngine
 from .portfolio import PortfolioManager
+from .strategy_researcher import StrategyResearcher
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class PicsouAgent:
             min_days=self.config.learning.min_days,
             elimination_win_rate=self.config.learning.elimination_win_rate,
             elimination_max_drawdown=self.config.learning.elimination_max_drawdown,
+            min_exploration_trades=self.config.learning.min_exploration_trades,
         )
 
         # Initialize exchanges
@@ -79,6 +81,14 @@ class PicsouAgent:
             fear_and_greed_enabled=self.config.fear_and_greed_enabled,
             news_enabled=self.config.news_enabled,
             config_path=self.config.llm_config_path,
+        )
+
+        # Initialize strategy researcher (web-sourced insights for LLM)
+        self.strategy_researcher = StrategyResearcher(
+            cache_path=str(self.config.paths.data / "research_cache.json"),
+            cache_ttl=self.config.research_cache_ttl,
+            max_sources=self.config.research_max_sources,
+            enabled=self.config.research_enabled,
         )
 
         # Symbol list
@@ -162,7 +172,8 @@ class PicsouAgent:
 
         return sentiment
 
-    def ask_brain(self, market_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def ask_brain(self, market_data: Dict[str, Dict[str, Any]],
+                  research_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Ask the LLM brain for trading decisions based on current context.
 
         Returns:
@@ -174,6 +185,7 @@ class PicsouAgent:
             journal=self.journal,
             symbols=self.symbols,
             risk_config=self.config.risk,
+            research_insights=research_insights,
         )
         return decisions
 
@@ -404,39 +416,86 @@ class PicsouAgent:
         """Run learning evaluation on LLM decision categories.
 
         Evaluates win rates by strategy_type (LLM-generated categories)
-        instead of fixed strategy names. Only uses CLOSED TRADES with
-        real PnL — hold decisions are excluded from learning.
+        using both CLOSED TRADES (realized PnL) and journal decision stats.
+        This ensures learning can happen even with few closed trades.
         """
+        # Count total data points: closed trades + journal entries
         total_closed = len(self.portfolio.trades)
-        if total_closed < self.config.learning.min_trades:
-            logger.info("Not enough closed trades for learning evaluation (%d < %d)",
-                        total_closed, self.config.learning.min_trades)
+        recent = self.journal.get_recent(limit=5000)
+        total_journal_decisions = len(recent)
+
+        # Use a lower threshold if we have journal data (decisions = learning signal)
+        min_required = max(1, self.config.learning.min_trades)
+        has_enough_data = (total_closed >= min_required or
+                           total_journal_decisions >= min_required)
+
+        if not has_enough_data:
+            logger.info("Not enough data for learning evaluation "
+                        "(closed_trades=%d, journal_decisions=%d, min=%d)",
+                        total_closed, total_journal_decisions, min_required)
             return None
 
         # Build a lookup: close_time -> strategy_type from journal
-        # Only index sell entries (which correspond to closed trades)
-        recent = self.journal.get_recent(limit=5000)
+        # Index both sell entries (closed trades) AND buy entries (open positions)
         strategy_lookup: Dict[str, str] = {}
         for entry in recent:
-            if entry.get("action") == "sell" and entry.get("timestamp"):
-                strategy_lookup[entry["timestamp"][:19]] = entry.get("strategy", "llm_driven")
+            ts = entry.get("timestamp", "")
+            if ts and entry.get("action") in ("buy", "sell"):
+                strategy_lookup[ts[:19]] = entry.get("strategy", "llm_driven")
 
-        # Group closed trades by strategy_type using journal lookup
+        # 1. Closed trades with realized PnL (primary signal)
         trades_by_strategy: Dict[str, List[Dict[str, Any]]] = {}
         for trade in self.portfolio.trades:
-            # Match trade close_time to journal entry strategy
             close_ts = trade.close_time[:19] if trade.close_time else ""
             strategy = strategy_lookup.get(close_ts, "llm_driven")
             if strategy not in trades_by_strategy:
                 trades_by_strategy[strategy] = []
             trades_by_strategy[strategy].append({"pnl": trade.pnl})
 
-        # Update learning with REAL trades only (no holds)
+        # 2. Open positions with unrealized PnL estimation (secondary signal)
+        # This gives us more data for learning even without closed trades
+        for pos in self.portfolio.get_open_positions():
+            # Find matching journal buy entry for this position
+            pos_strategy = "llm_driven"
+            for entry in recent:
+                if (entry.get("action") == "buy" and
+                        entry.get("symbol", "").startswith(pos.symbol.replace("-", "").replace("USDT", "").upper()) and
+                        entry.get("timestamp", "")):
+                    pos_strategy = entry.get("strategy", "llm_driven")
+                    break
+
+            # Estimate unrealized PnL (negative = loss, includes fees)
+            unrealized_pnl = -(pos.fee)  # At minimum, fees are a loss
+            if pos_strategy not in trades_by_strategy:
+                trades_by_strategy[pos_strategy] = []
+            trades_by_strategy[pos_strategy].append({"pnl": unrealized_pnl})
+
+        # Update learning with all available trade data
         for strategy_name, trade_list in trades_by_strategy.items():
             self.learning.update_from_trades(
                 strategy_name=strategy_name,
                 trades=trade_list,
             )
+
+        # Also count hold decisions per strategy, but do NOT inflate trade counts
+        # Holds are non-events — they should not count as real trades for win rate
+        hold_by_strategy: Dict[str, int] = {}
+        for entry in recent:
+            if entry.get("action") == "hold":
+                strategy = entry.get("strategy", "risk_management")
+                hold_by_strategy[strategy] = hold_by_strategy.get(strategy, 0) + 1
+
+        # Only update learning with actual (non-hold) trade data for strategies
+        # that have real trades. Skip strategies that only have holds — they
+        # don't have meaningful PnL data.
+        for strategy_name, trade_list in trades_by_strategy.items():
+            # Filter out zero-pnl entries that came from holds
+            real_trades = [t for t in trade_list if t.get("pnl", 0) != 0.0 or t.get("is_hold", False) is not True]
+            if real_trades:
+                self.learning.update_from_trades(
+                    strategy_name=strategy_name,
+                    trades=real_trades,
+                )
 
         result = self.learning.evaluate_strategies()
         logger.info("Learning evaluation: eliminated=%s, promoted=%s",
@@ -475,7 +534,60 @@ class PicsouAgent:
             },
             "exchanges": list(self.exchanges.keys()),
             "symbols": self.symbols,
+            "exploration_phase": self.config.exploration_phase,
+            "underexplored_strategies": self.learning.get_underexplored_strategies(),
         }
+
+    def _generate_exploration_trades(self, market_data: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Generate small exploratory trades for under-explored strategies.
+
+        Uses simple EMA crossover signals as fallback to produce trades
+        when the LLM refuses to trade. Positions are sized at exploration_position_pct
+        (typically 2%) to limit risk during exploration.
+
+        Returns:
+            List of decision dicts for under-explored strategies.
+        """
+        underexplored = self.learning.get_underexplored_strategies()
+        if not underexplored:
+            return []
+
+        # Pick the most under-explored strategy first
+        # Sort by total_trades ascending (none = 0)
+        def strategy_trade_count(name: str) -> int:
+            if name in self.learning.scores:
+                return self.learning.scores[name].total_trades
+            return 0
+
+        underexplored.sort(key=strategy_trade_count)
+        target_strategy = underexplored[0]
+
+        logger.info("Exploration: strategy '%s' has insufficient data, generating fallback trade",
+                     target_strategy)
+
+        # Use EMA fallback signal on available market data
+        from .brain import fallback_ema_signal
+
+        exploration_trades = []
+        for key, md in market_data.items():
+            candles = md.get("candles", [])
+            symbol = md.get("base", "")
+            exchange = md.get("exchange", "")
+
+            sig = fallback_ema_signal(candles, symbol, exchange)
+            if sig:
+                # Override strategy_type to the under-explored strategy
+                sig["strategy_type"] = target_strategy
+                # Use small position size for exploration
+                sig["amount_pct"] = self.config.exploration_position_pct
+                sig["reasoning"] = (
+                    f"EXPLORATION: Testing strategy '{target_strategy}' with EMA fallback. "
+                    f"Original signal: {sig.get('reasoning', '')}"
+                )
+                exploration_trades.append(sig)
+                break  # One trade per exploration cycle is enough
+
+        return exploration_trades
 
     def run_once(self) -> Dict[str, Any]:
         """Run one iteration of the main agent loop.
@@ -496,10 +608,69 @@ class PicsouAgent:
                      sentiment.get("fear_and_greed", {}).get("value", "N/A"),
                      len(sentiment.get("headlines", [])))
 
-        # 3. Ask the LLM brain
-        logger.info("Asking LLM brain for decisions...")
-        llm_decisions = self.ask_brain(market_data)
+        # 3. Ask the LLM brain (with exploration context if needed)
+        # Build learning context for the prompt
+        learning_context = self.learning.get_learning_context()
+        underexplored = learning_context.get("underexplored_strategies", [])
+        in_exploration_phase = (
+            self.config.exploration_phase and len(underexplored) > 0
+        )
+
+        # Inject exploration context into the brain
+        self.brain.exploration_mode = in_exploration_phase
+        self.brain.underexplored_strategies = underexplored
+        self.brain.learning_context = learning_context
+
+        # 2.5 Fetch strategy research insights (web-sourced)
+        research_insights = None
+        try:
+            research_insights = self.strategy_researcher.fetch_strategy_insights(
+                symbols=self.symbols
+            )
+            logger.info("Research insights: strategies=%s, signals=%s",
+                         research_insights.get("trending_strategies", []),
+                         research_insights.get("technical_signals", []))
+        except Exception as e:
+            logger.warning("Strategy research failed (non-critical): %s", e)
+
+        logger.info("Asking LLM brain for decisions (exploration=%s, under-explored=%s)...",
+                     in_exploration_phase, underexplored)
+        llm_decisions = self.ask_brain(market_data, research_insights=research_insights)
         logger.info("LLM brain returned %d decisions", len(llm_decisions))
+
+        # 3.5 Exploration fallback: if LLM returned no decisions or only holds
+        # and we're in exploration phase, generate trades for under-explored strategies
+        real_decisions = [d for d in llm_decisions if d.get("action", "").lower() != "hold"]
+        if in_exploration_phase and len(real_decisions) == 0:
+            logger.info("LLM returned no actionable decisions — generating exploration trades")
+            exploration_trades = self._generate_exploration_trades(market_data)
+            if exploration_trades:
+                logger.info("Generated %d exploration trade(s) for under-explored strategies",
+                            len(exploration_trades))
+                llm_decisions.extend(exploration_trades)
+            else:
+                logger.info("No EMA fallback signal available for exploration")
+
+        # 3.6 If STILL no decisions, log holds (but NOT as generic risk_management)
+        # In exploration mode, we avoid flooding the journal with risk_management holds
+        if not llm_decisions:
+            if in_exploration_phase:
+                # In exploration mode, don't log holds at all — they pollute the learning data
+                logger.info("No decisions this cycle (exploration mode — skipping hold logging)")
+            else:
+                logger.info("LLM returned no decisions — logging hold for all symbols")
+                for key, md in market_data.items():
+                    self.journal.log_decision(
+                        exchange=md.get("exchange", "unknown"),
+                        symbol=md.get("symbol", ""),
+                        strategy="risk_management",
+                        action="hold",
+                        reasoning="LLM returned no decisions (market conditions unclear or Extreme Fear)",
+                        confidence=0.3,
+                        llm_prompt=self.brain.last_prompt or "",
+                        llm_response=self.brain.last_response or "",
+                        llm_tokens=self.brain.last_tokens or {},
+                    )
 
         # 4. Execute decisions (with risk management)
         logger.info("Making decisions...")
@@ -508,6 +679,15 @@ class PicsouAgent:
 
         # 5. Learning evaluation (periodic)
         eval_result = self.evaluate_learning()
+
+        # 5.5 Auto-disable exploration phase when all strategies have enough data
+        if self.config.exploration_phase:
+            target_strategies = ["contrarian", "breakout", "dca", "momentum", "mean_reversion"]
+            still_underexplored = self.learning.get_underexplored_strategies(target_strategies)
+            if not still_underexplored:
+                logger.info("All target strategies have >= %d trades — disabling exploration phase",
+                            self.config.learning.min_exploration_trades)
+                self.config.exploration_phase = False
 
         # 6. Get summary
         summary = self.get_summary()

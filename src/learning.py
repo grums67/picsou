@@ -75,10 +75,11 @@ class LearningEngine:
 
     def __init__(self, data_path: Path = Path("/root/PROJECTS/picsou/data"),
                  win_rate_threshold: float = 0.55,
-                 min_trades: int = 50,
-                 min_days: int = 14,
+                 min_trades: int = 5,
+                 min_days: int = 1,
                  elimination_win_rate: float = 0.50,
-                 elimination_max_drawdown: float = 0.30) -> None:
+                 elimination_max_drawdown: float = 0.30,
+                 min_exploration_trades: int = 3) -> None:
         self.data_path = data_path
         self.data_path.mkdir(parents=True, exist_ok=True)
         self.file_path = data_path / "learning.json"
@@ -87,6 +88,7 @@ class LearningEngine:
         self.min_days = min_days
         self.elimination_win_rate = elimination_win_rate
         self.elimination_max_drawdown = elimination_max_drawdown
+        self.min_exploration_trades = min_exploration_trades
 
         # Decision category scores
         self.scores: Dict[str, StrategyScore] = {}
@@ -126,6 +128,10 @@ class LearningEngine:
                            trades: List[Dict[str, Any]]) -> None:
         """Update category score from trade results.
 
+        Recalculates all statistics from the full trade list rather than
+        accumulating, to avoid double-counting when evaluate_learning
+        is called multiple times.
+
         Args:
             strategy_name: LLM-assigned strategy_type category.
             trades: List of trade dicts with 'pnl' key.
@@ -135,6 +141,13 @@ class LearningEngine:
 
         score = self.scores[strategy_name]
         returns: List[float] = []
+
+        # Reset and recalculate from full trade list to avoid accumulation
+        score.total_trades = 0
+        score.winning_trades = 0
+        score.losing_trades = 0
+        score.total_profit = 0.0
+        score.returns = []
 
         for trade in trades:
             pnl = trade.get("pnl", 0.0)
@@ -151,10 +164,8 @@ class LearningEngine:
             score.avg_profit = score.total_profit / score.total_trades
 
         # Calculate max drawdown from returns
-        score.returns.extend(returns)
+        score.returns = returns
         score.max_drawdown = self._calculate_max_drawdown(score.returns)
-
-        # Calculate Sharpe ratio
         score.sharpe_ratio = self._calculate_sharpe_ratio(score.returns)
 
         logger.info("Updated %s: win_rate=%.2f, trades=%d, sharpe=%.2f, "
@@ -226,10 +237,17 @@ class LearningEngine:
             if not score.active:
                 continue
 
-            # Need minimum trades to evaluate
+            # Need minimum trades to evaluate — skip strategies with insufficient data
             if score.total_trades < self.min_trades:
                 logger.info("%s: insufficient trades (%d < %d), skipping evaluation",
                             name, score.total_trades, self.min_trades)
+                continue
+
+            # NEVER eliminate a strategy that hasn't been explored enough
+            # (even if min_trades threshold is met, check exploration minimum)
+            if score.total_trades < self.min_exploration_trades:
+                logger.info("%s: under-explored (%d < %d min_exploration_trades), protecting from elimination",
+                            name, score.total_trades, self.min_exploration_trades)
                 continue
 
             # Elimination criteria
@@ -289,6 +307,51 @@ class LearningEngine:
     def get_active_strategies(self) -> List[str]:
         """Get list of active decision category names."""
         return [name for name, score in self.scores.items() if score.active]
+
+    def get_underexplored_strategies(self, target_strategies: List[str] = None) -> List[str]:
+        """Get strategies that are active but have fewer trades than min_exploration_trades.
+
+        Args:
+            target_strategies: List of strategy names to check. If None, checks all active strategies.
+
+        Returns:
+            List of strategy names that need more exploration trades.
+        """
+        # Default target strategies if none specified
+        if target_strategies is None:
+            target_strategies = ["contrarian", "breakout", "dca", "momentum",
+                                 "mean_reversion", "llm_driven"]
+
+        underexplored = []
+        for name in target_strategies:
+            if name not in self.scores:
+                # Strategy has never been seen — definitely under-explored
+                underexplored.append(name)
+            else:
+                score = self.scores[name]
+                if score.active and score.total_trades < self.min_exploration_trades:
+                    underexplored.append(name)
+        return underexplored
+
+    def get_learning_context(self) -> Dict[str, Any]:
+        """Get current learning state context for the LLM prompt.
+
+        Returns dict with strategy weights, win rates, and under-explored strategies.
+        """
+        strategy_info = {}
+        for name, score in self.scores.items():
+            strategy_info[name] = {
+                "weight": round(score.weight, 4),
+                "win_rate": round(score.win_rate, 4),
+                "total_trades": score.total_trades,
+                "active": score.active,
+            }
+
+        return {
+            "strategy_scores": strategy_info,
+            "active_strategies": self.get_active_strategies(),
+            "underexplored_strategies": self.get_underexplored_strategies(),
+        }
 
     def run_backtest(self, strategy_signals: List[Dict[str, Any]],
                      initial_capital: float = 10000.0,

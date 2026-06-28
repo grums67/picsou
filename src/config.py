@@ -28,10 +28,11 @@ class RiskConfig:
 class LearningConfig:
     """Learning phase thresholds."""
     win_rate_threshold: float = 0.55
-    min_trades: int = 50
-    min_days: int = 14
+    min_trades: int = 5
+    min_days: int = 1
     elimination_win_rate: float = 0.50
     elimination_max_drawdown: float = 0.30
+    min_exploration_trades: int = 3  # Don't eliminate strategies with fewer trades than this
 
 
 @dataclass
@@ -95,6 +96,17 @@ class PicsouConfig:
     # ── Sentiment data sources ───────────────────────────────────────────
     fear_and_greed_enabled: bool = True
     news_enabled: bool = True
+
+    # ── Strategy research (web-sourced insights for LLM) ──────────────────
+    research_enabled: bool = True
+    research_cache_ttl: int = 1800  # 30 minutes
+    research_max_sources: int = 5
+
+    # ── Exploration phase ─────────────────────────────────────────────────
+    # When True, force the agent to test under-explored strategies
+    exploration_phase: bool = True
+    # Exploration trade size as % of available balance (small positions)
+    exploration_position_pct: float = 0.02
 
     def __post_init__(self) -> None:
         """Set up default exchange configs and load env vars."""
