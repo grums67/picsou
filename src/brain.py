@@ -218,6 +218,8 @@ class PicsouBrain:
         self.exploration_mode: bool = False
         self.underexplored_strategies: List[str] = []
         self.learning_context: Optional[Dict[str, Any]] = None
+        # Self-reflection strategy rules (hot-reloaded from strategy_rules.json)
+        self.strategy_rules: Dict[str, Any] = {}
 
         # Write initial config file if it doesn't exist
         self._write_default_config()
@@ -301,6 +303,71 @@ class PicsouBrain:
             "total_tokens_used": self.total_tokens_used,
             "available_models": self.AVAILABLE_MODELS,
         }
+
+    def load_strategy_rules(self) -> Dict[str, Any]:
+        """Load self-reflection strategy rules from strategy_rules.json.
+
+        Hot-reloads the rules from disk each cycle so the running process
+        picks up changes made by SelfReflect.reflect().
+
+        Returns:
+            The loaded rules dict, or empty dict if file doesn't exist.
+        """
+        rules_path = Path(self.config_path).parent / "strategy_rules.json" if self.config_path else Path("/root/PROJECTS/picsou/data/strategy_rules.json")
+        if not rules_path.exists():
+            self.strategy_rules = {}
+            return self.strategy_rules
+        try:
+            with open(rules_path, "r", encoding="utf-8") as f:
+                self.strategy_rules = json.load(f)
+            logger.info("Loaded %d strategy rules from %s",
+                        len(self.strategy_rules.get("rules", [])),
+                        rules_path)
+            return self.strategy_rules
+        except Exception as e:
+            logger.warning("Failed to load strategy rules: %s", e)
+            self.strategy_rules = {}
+            return self.strategy_rules
+
+    def _build_strategy_rules_section(self) -> str:
+        """Build the strategy rules injection section for the LLM prompt."""
+        if not self.strategy_rules or not self.strategy_rules.get("rules"):
+            return ""
+
+        rules = self.strategy_rules.get("rules", [])
+        adjustments = self.strategy_rules.get("strategy_adjustments", {})
+        params = self.strategy_rules.get("parameter_changes", {})
+
+        lines = ["SELF-IMPROVEMENT RULES (learned from past performance):"]
+        for rule in rules:
+            lines.append(f"- {rule}")
+
+        # Strategy adjustments summary
+        if adjustments:
+            adj_parts = []
+            for name, adj in adjustments.items():
+                boost = adj.get("weight_boost", 0)
+                penalty = adj.get("weight_penalty", 0)
+                if boost:
+                    adj_parts.append(f"{name} +{boost:.0%}")
+                if penalty:
+                    adj_parts.append(f"{name} -{penalty:.0%}")
+            if adj_parts:
+                lines.append(f"Strategy adjustments: {', '.join(adj_parts)}")
+
+        # Risk parameters summary
+        if params:
+            param_parts = []
+            if "preferred_position_pct" in params:
+                param_parts.append(f"position size {params['preferred_position_pct']:.0%}")
+            if params.get("avoid_high_fear"):
+                param_parts.append("avoid high fear markets (F&G < 25)")
+            if params.get("avoid_extreme_greed"):
+                param_parts.append("avoid extreme greed markets (F&G > 75)")
+            if param_parts:
+                lines.append(f"Risk parameters: {', '.join(param_parts)}")
+
+        return "\n".join(lines) + "\n"
 
     # ── Market data summarizer ────────────────────────────────────────
 
@@ -472,6 +539,9 @@ class PicsouBrain:
             if active:
                 learning_section += f"\nActive strategies: {', '.join(active)}\n"
 
+        # Build self-improvement rules section (from reflection)
+        strategy_rules_section = self._build_strategy_rules_section()
+
         # Build exploration directive
         exploration_directive = ""
         if self.exploration_mode and self.underexplored_strategies:
@@ -510,6 +580,7 @@ Note: In exploration mode, low Fear & Greed is an OPPORTUNITY for contrarian str
         return f"""You are Picsou, an autonomous crypto trading agent. Analyze the current market conditions, sentiment, and portfolio state, then decide what actions to take.
 
 {learning_section}
+{strategy_rules_section}
 {exploration_directive}
 CURRENT MARKET DATA:
 {self._summarize_market(market_data)}

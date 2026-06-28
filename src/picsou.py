@@ -22,6 +22,7 @@ from .journal import DecisionJournal
 from .learning import LearningEngine
 from .portfolio import PortfolioManager
 from .strategy_researcher import StrategyResearcher
+from .self_reflect import SelfReflect
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,17 @@ class PicsouAgent:
             max_sources=self.config.research_max_sources,
             enabled=self.config.research_enabled,
         )
+
+        # Initialize self-reflection engine
+        self.reflector = SelfReflect(
+            data_path=self.config.paths.data,
+            llm_url=self.config.llm_url,
+            llm_api_key=self.config.llm_api_key,
+            llm_model=self.config.llm_model,
+            llm_config_path=self.config.llm_config_path,
+        )
+        self.reflection_counter = 0
+        self._strategy_rules = {}
 
         # Symbol list
         self.symbols = self.config.symbols
@@ -247,6 +259,21 @@ class PicsouAgent:
             amount_pct = decision.get("amount_pct", 0.05)
             reasoning = decision.get("reasoning", "")
             strategy_type = decision.get("strategy_type", "llm_driven")
+
+            # Apply self-reflection rules
+            if hasattr(self, '_strategy_rules') and self._strategy_rules:
+                rules = self._strategy_rules
+                params = rules.get("parameter_changes", {})
+                # Override position size if reflection says so
+                if "preferred_position_pct" in params:
+                    amount_pct = min(amount_pct, params["preferred_position_pct"])
+                # Skip certain strategies if reflection penalizes them heavily
+                adjustments = rules.get("strategy_adjustments", {})
+                if strategy_type in adjustments:
+                    adj = adjustments[strategy_type]
+                    if adj.get("weight_penalty", 0) >= 0.5:
+                        logger.info("Skipping %s: self-reflection penalized it", strategy_type)
+                        continue
 
             # Validate exchange
             if exchange_name not in self.exchanges:
@@ -596,6 +623,10 @@ class PicsouAgent:
         """
         logger.info("=== Picsou agent loop started ===")
 
+        # Load self-reflection rules (hot-reload from disk each cycle)
+        self.reflector.load_rules()
+        self._strategy_rules = self.reflector.current_rules
+
         # 1. Fetch market data
         logger.info("Fetching market data...")
         market_data = self.fetch_market_data()
@@ -689,6 +720,35 @@ class PicsouAgent:
                             self.config.learning.min_exploration_trades)
                 self.config.exploration_phase = False
 
+        # 5.6 Self-reflection every 48 cycles (~4 hours at 5-min intervals)
+        # Only starts after enough trading data has been collected
+        self.reflection_counter += 1
+        reflection_result = None
+        min_trades_for_reflection = 20  # Need real experience before reflecting
+        total_closed_trades = len(self.portfolio.trades) if hasattr(self, 'portfolio') else 0
+        ready_to_reflect = (
+            self.reflection_counter >= 48
+            and total_closed_trades >= min_trades_for_reflection
+        )
+        if ready_to_reflect:
+            self.reflection_counter = 0
+            try:
+                reflection_result = self.reflector.reflect()
+                if reflection_result:
+                    # Hot-reload brain with new rules
+                    self.brain.load_strategy_rules()
+                    # Update local rules cache
+                    self._strategy_rules = self.reflector.current_rules
+                    logger.info("Self-reflection completed: %s changes (trades=%d)",
+                                len(reflection_result.get("changes", [])),
+                                total_closed_trades)
+            except Exception as e:
+                logger.error("Self-reflection failed: %s", e)
+        elif self.reflection_counter >= 48 and total_closed_trades < min_trades_for_reflection:
+            logger.info("Self-reflection skipped: only %d closed trades (need %d)",
+                        total_closed_trades, min_trades_for_reflection)
+            # Don't reset counter — keep counting until we have enough data
+
         # 6. Get summary
         summary = self.get_summary()
         summary["decisions"] = decisions
@@ -696,6 +756,8 @@ class PicsouAgent:
         summary["sentiment"] = sentiment
         if eval_result:
             summary["learning_evaluation"] = eval_result
+        if reflection_result:
+            summary["self_reflection"] = reflection_result
 
         logger.info("=== Picsou agent loop completed: %d decisions ===",
                      len(decisions))
