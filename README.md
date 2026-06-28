@@ -1,187 +1,187 @@
-# 🪙 Picsou — Autonomous Crypto Trading Agent
+# 🪙 Picsou — Agent de Trading Crypto Autonome
 
-**Self-learning paper-trading agent** that uses an LLM brain, live market data, sentiment analysis, and web-sourced strategy research to trade cryptocurrencies autonomously.
+**Agent de paper-trading auto-apprenant** qui utilise un cerveau LLM, des données de marché en temps réel, l'analyse de sentiment et la recherche web de stratégies pour trader les cryptomonnaies en autonomie.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  Picsou Agent                     │
-│                  (run_once loop)                  │
-├─────────┬──────────┬──────────┬─────────────────┤
-│  Market │   LLM    │ Learning │   Research       │
-│  Data   │  Brain   │  Engine  │   Insights       │
-│ (3 exch)│(Kimi K2) │(weights) │  (DuckDuckGo +   │
-│         │          │          │   CoinGecko +     │
-│         │          │          │   CryptoCompare)  │
-├─────────┴──────────┴──────────┴─────────────────┤
-│           Portfolio Manager (paper trading)       │
-│           Decision Journal (JSONL)                │
-│           Dashboard (FastAPI + PWA)               │
+┌──────────────────────────────────────────────────┐
+│                  Agent Picsou                      │
+│                (boucle run_once)                   │
+├──────────┬──────────┬──────────┬─────────────────┤
+│  Marché  │  Cerveau │ Apprent. │   Recherche      │
+│  (3 exh) │  (LLM)   │  (poids) │   web             │
+│          │          │          │  DuckDuckGo +     │
+│          │          │          │  CoinGecko +       │
+│          │          │          │  CryptoCompare    │
+├──────────┴──────────┴──────────┴─────────────────┤
+│         Gestionnaire de Portfolio (paper trading) │
+│         Journal de Décisions (JSONL)              │
+│         Dashboard (FastAPI + PWA)                 │
 └──────────────────────────────────────────────────┘
 ```
 
-## How It Works
+## Comment ça marche
 
-### Trading Cycle (every 15 min)
+### Cycle de trading (toutes les 15 min)
 
-1. **Fetch market data** — BTC, ETH, SOL prices, candles, order books from OKX, Kraken, Bitstamp
-2. **Fetch sentiment** — Fear & Greed Index + crypto headlines
-3. **Fetch research insights** — DuckDuckGo strategy search + CoinGecko trending + CryptoCompare analysis
-4. **LLM decision** — Brain analyzes everything and outputs structured buy/sell/hold decisions with strategy type and reasoning
-5. **Execute trades** — Portfolio manager opens/closes positions (paper trading)
-6. **Learn** — Evaluate strategy performance, adjust weights, eliminate underperformers
+1. **Récupérer les données marché** — Prix BTC, ETH, SOL, chandeliers et carnets d'ordres depuis OKX, Kraken, Bitstamp
+2. **Récupérer le sentiment** — Fear & Greed Index + titres crypto
+3. **Rechercher des insights** — Recherche DuckDuckGo + tendances CoinGecko + analyses CryptoCompare
+4. **Décision LLM** — Le cerveau analyse l'ensemble et produit des décisions structurées achat/vente/hold avec type de stratégie et raisonnement
+5. **Exécuter les trades** — Ouverture/fermeture de positions (paper trading)
+6. **Apprendre** — Évaluer les performances par stratégie, ajuster les poids, éliminer les sous-performantes
 
-### Learning System
+### Système d'apprentissage
 
-Picsou evaluates **6 strategy categories** the LLM assigns to its own decisions:
+Picsou évalue **6 catégories de stratégies** que le LLM assigne à ses propres décisions :
 
-| Strategy | Description |
+| Stratégie | Description |
 |---|---|
-| `momentum` | Trend-following trades |
-| `mean_reversion` | Trading against overextended moves |
-| `breakout` | Trading breakouts from ranges |
-| `contrarian` | Counter-trend at extremes |
-| `dca` | Dollar-cost averaging entries |
-| `risk_management` | Hold/defensive decisions |
+| `momentum` | Suivi de tendance |
+| `mean_reversion` | Contre les mouvements surextendus |
+| `breakout` | Cassure de ranges |
+| `contrarian` | Contre-tendance aux extrêmes |
+| `dca` | Entrées en moyenne à cours réduit |
+| `risk_management` | Décisions défensives / hold |
 
-**Adaptive weights:**
-- Strategies with **win rate ≥ 55%** and **Sharpe > 0.5** get promoted (weight increased)
-- Strategies with **win rate < 50%** or **max drawdown > 30%** get eliminated
-- Weights are normalized so active strategies sum to 1.0
-- Current weights are injected into the LLM prompt to influence future decisions
+**Poids adaptatifs :**
+- Les stratégies avec **win rate ≥ 55%** et **Sharpe > 0.5** sont promues (poids augmenté)
+- Les stratégies avec **win rate < 50%** ou **drawdown max > 30%** sont éliminées
+- Les poids sont normalisés pour sommer à 1.0
+- Les poids actuels sont injectés dans le prompt LLM pour influencer les décisions futures
 
-**Exploration phase:**
-- New strategies start untested — Picsou forces small trades (2% capital) to collect data
-- Strategies with < 3 trades are **protected from elimination**
-- Exploration auto-disables once all strategies have enough data
+**Phase d'exploration :**
+- Les nouvelles stratégies non testées reçoivent des petits trades forcés (2% du capital) pour collecter des données
+- Les stratégies avec < 3 trades sont **protégées contre l'élimination**
+- L'exploration se désactive automatiquement quand toutes les stratégies ont suffisamment de données
 
-### Research Insights (Web-Sourced)
+### Recherche d'insights (source web)
 
-Picsou searches the web for current strategy intelligence:
+Picsou cherche des intelligences de stratégie en ligne :
 
-- **DuckDuckGo** — Crypto trading strategy search results
-- **CoinGecko Trending** — Currently trending coins and market momentum
-- **CryptoCompare News** — Headlines with technical analysis signals
+- **DuckDuckGo** — Résultats de recherche sur les stratégies crypto
+- **CoinGecko Trending** — Coins en vogue et dynamique de marché
+- **CryptoCompare News** — Titres avec signaux d'analyse technique
 
-Extracted insights (trending strategies, technical signals, risk factors) are injected into the LLM prompt as supplementary context. Results are cached for 30 minutes.
+Les insights extraits (stratégies tendance, signaux techniques, facteurs de risque) sont injectés dans le prompt LLM comme contexte supplémentaire. Résultats mis en cache pendant 30 minutes.
 
 ### Fallback
 
-If the LLM is unavailable, Picsou falls back to **EMA9/EMA21 crossover signals** on available market data.
+Si le LLM est indisponible, Picsou utilise un **signal de croisement EMA9/EMA21** sur les données de marché disponibles.
 
 ## Configuration
 
-Key parameters in `src/config.py`:
+Paramètres clés dans `src/config.py` :
 
 ```python
 # Trading
-phase = "learning"              # "learning" (paper) or "live"
-starting_capital = 10000.0      # Paper trading capital (10x real)
+phase = "learning"              # "learning" (paper) ou "live"
+starting_capital = 10000.0      # Capital paper trading (10x le réel)
 symbols = ["BTC", "ETH", "SOL"]
-loop_interval = 300             # Seconds between cycles
+loop_interval = 300             # Secondes entre les cycles
 
-# Risk
-max_position_pct = 0.20         # Max 20% capital per position
-max_open_positions = 5
-max_drawdown_pct = 0.20         # Pause at 20% drawdown
+# Risque
+max_position_pct = 0.20         # Max 20% du capital par position
+max_open_positions = 5          # Max 5 positions simultanées
+max_drawdown_pct = 0.20         # Pause à 20% de drawdown
 
-# Learning
-min_trades = 5                  # Min trades before evaluating a strategy
-min_exploration_trades = 3      # Min trades before a strategy can be eliminated
-exploration_phase = True         # Force exploration of untested strategies
-exploration_position_pct = 0.02  # 2% position for exploration trades
+# Apprentissage
+min_trades = 5                  # Trades min avant d'évaluer une stratégie
+min_exploration_trades = 3      # Trades min avant qu'une stratégie puisse être éliminée
+exploration_phase = True        # Forcer l'exploration des stratégies non testées
+exploration_position_pct = 0.02 # 2% de position pour les trades d'exploration
 
-# Research
+# Recherche
 research_enabled = True
-research_cache_ttl = 1800       # 30 min cache
+research_cache_ttl = 1800       # Cache 30 min
 research_max_sources = 5
 ```
 
 ## Exchanges
 
-| Exchange | Symbol Format | Fee |
+| Exchange | Format symbole | Frais |
 |---|---|---|
 | OKX | `BTC-USDT` | 0.08% |
 | Kraken | `XBTUSDT` | 0.26% |
 | Bitstamp | `BTCUSDT` | 0.25% |
 
-All MiCA-compliant. API keys go in `.env` (trade-only, no withdrawal).
+Tous conformes MiCA. Clés API dans `.env` (trade uniquement, pas de retrait).
 
 ## Dashboard
 
-Real-time PWA dashboard at `http://localhost:3037`:
+Dashboard PWA temps réel sur `http://localhost:3037` :
 
-- Portfolio value, P&L, positions
-- Decision journal with reasoning
-- Strategy weights and win rates
-- LLM model status
-- Kill switch
+- Valeur du portefeuille, P&L, positions
+- Journal des décisions avec raisonnement
+- Poids des stratégies et taux de réussite
+- Statut du modèle LLM
+- Kill switch d'urgence
 
-Service: `systemctl status picsou-dashboard`
+Service : `systemctl status picsou-dashboard`
 
-## Project Structure
+## Structure du projet
 
 ```
 picsou/
 ├── src/
-│   ├── picsou.py              # Main agent loop
-│   ├── brain.py               # LLM decision engine
+│   ├── picsou.py              # Boucle principale de l'agent
+│   ├── brain.py               # Moteur de décision LLM
 │   ├── config.py              # Configuration
-│   ├── portfolio.py           # Portfolio manager
-│   ├── journal.py             # Decision journal
-│   ├── learning.py            # Learning engine (adaptive weights)
-│   ├── strategy_researcher.py # Web strategy research
+│   ├── portfolio.py           # Gestionnaire de portefeuille
+│   ├── journal.py             # Journal de décisions
+│   ├── learning.py            # Moteur d'apprentissage (poids adaptatifs)
+│   ├── strategy_researcher.py # Recherche web de stratégies
 │   ├── exchanges/
-│   │   ├── base.py            # Exchange interface
+│   │   ├── base.py            # Interface exchange
 │   │   ├── okx.py
 │   │   ├── kraken.py
 │   │   └── bitstamp.py
 │   └── strategies/
-│       ├── base.py             # Strategy interface
+│       ├── base.py             # Interface stratégie
 │       ├── momentum.py
 │       ├── mean_reversion.py
 │       ├── grid.py
 │       └── dca.py
 ├── dashboard/
-│   ├── app.py                 # FastAPI server
+│   ├── app.py                 # Serveur FastAPI
 │   ├── templates/
 │   └── static/
-├── data/                      # Runtime data (gitignored)
+├── data/                      # Données runtime (gitignored)
 │   ├── portfolio.json
 │   ├── journal.jsonl
 │   ├── learning.json
 │   ├── brain_status.json
 │   └── research_cache.json
-├── run_agent.py               # CLI runner
-├── run.sh                     # Shell runner
+├── run_agent.py               # Lanceur CLI
+├── run.sh                     # Lanceur shell
 └── requirements.txt
 ```
 
-## Quick Start
+## Démarrage rapide
 
 ```bash
-# Install dependencies
+# Installer les dépendances
 pip install -r requirements.txt
 
-# Configure .env with API keys
+# Configurer les clés API dans .env
 cp .env.example .env
 
-# Run one cycle (test)
+# Lancer un cycle (test)
 python run_agent.py
 
-# Run continuously
+# Lancer en continu
 bash run.sh
 ```
 
-## Safety
+## Sécurité
 
-- **Paper trading by default** — no real money at risk in learning phase
-- **Kill switch** — `picsou stop` via Telegram or dashboard
-- **Max drawdown 20%** — trading pauses automatically
-- **No withdrawal keys** — API keys are trade-only
-- **All data gitignored** — no secrets or portfolio data in git
+- **Paper trading par défaut** — aucun argent réel en phase d'apprentissage
+- **Kill switch** — `picsou stop` via Telegram ou dashboard
+- **Drawdown max 20%** — le trading se met en pause automatiquement
+- **Pas de clés de retrait** — les clés API sont trade uniquement
+- **Données gitignored** — aucun secret ni données de portfolio dans git
 
-## License
+## Licence
 
-Private project — all rights reserved.
+Projet privé — tous droits réservés.
