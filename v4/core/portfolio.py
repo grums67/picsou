@@ -48,11 +48,49 @@ class Position:
 class Portfolio:
     """Paper trading portfolio — state persisted via Memory (SQLite)."""
 
-    def __init__(self, starting_capital: float = 10000.0):
+    def __init__(self, starting_capital: float = 10000.0, memory=None):
         self.starting_capital = starting_capital
         self.balance = starting_capital
         self.positions: Dict[str, Position] = {}
         self.closed_trades: List[Dict] = []
+        if memory is not None:
+            self._restore_from_memory(memory)
+
+    def _restore_from_memory(self, memory):
+        """Restore portfolio state from trades stored in Memory (SQLite)."""
+        # Reload open positions
+        open_trades = memory.get_open_trades()
+        for t in open_trades:
+            pos = Position(
+                position_id=str(t.get("id", "")),
+                exchange=t.get("exchange", "okx"),
+                symbol=t.get("symbol", ""),
+                side=t.get("side", "buy"),
+                amount=t.get("amount", 0),
+                entry_price=t.get("price", 0),
+                fee=t.get("fee", 0),
+                timestamp=t.get("timestamp", ""),
+                strategy=t.get("strategy", ""),
+            )
+            self.positions[pos.id] = pos
+            # Deduct cost from balance (simulates the buy)
+            cost = pos.amount * pos.entry_price + pos.fee
+            self.balance -= cost
+            logger.info("Restored position %s %s %s @ %.2f (cost=%.2f)",
+                        pos.id, pos.side.upper(), pos.symbol, pos.entry_price, cost)
+
+        # Reload closed trades PnL
+        closed_trades = memory.get_closed_trades()
+        for t in closed_trades:
+            self.closed_trades.append(t)
+            # Add close proceeds back to balance
+            if t.get("side") == "buy" and t.get("close_price"):
+                close_proceeds = t.get("amount", 0) * t.get("close_price", 0)
+                close_fee = close_proceeds * EXCHANGE_FEES.get(t.get("exchange", "okx"), 0.001)
+                self.balance += close_proceeds - close_fee
+
+        logger.info("Portfolio restored: balance=$%.2f, %d open positions, %d closed trades",
+                    self.balance, len(self.positions), len(self.closed_trades))
 
     def get_state(self) -> Dict[str, Any]:
         """Get full portfolio state for context/serialization."""

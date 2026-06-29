@@ -75,7 +75,7 @@ def start_health_server(port=3035):
                 self.send_response(404)
                 self.end_headers()
 
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server = HTTPServer(("127.0.0.1", port), HealthHandler)
     logger.info("Health endpoint on port %d", port)
     server.serve_forever()
 
@@ -111,7 +111,7 @@ def run_brain_loop(config: PicsouConfig):
 
     exchanges = init_exchanges(config)
     memory = Memory(config.data_path / "picsou.db")
-    portfolio = Portfolio(config.starting_capital)
+    portfolio = Portfolio(config.starting_capital, memory=memory)
     heartbeat = Heartbeat(config, portfolio, memory, exchanges)
     brain_loop = BrainLoop(config, portfolio, memory, exchanges)
 
@@ -239,7 +239,7 @@ def main():
         t.start()
         exchanges = init_exchanges(config)
         memory = Memory(config.data_path / "picsou.db")
-        portfolio = Portfolio(config.starting_capital)
+        portfolio = Portfolio(config.starting_capital, memory=memory)
         heartbeat = Heartbeat(config, portfolio, memory, exchanges)
         AGENT_STATE["status"] = "heartbeat_only"
         while True:
@@ -251,7 +251,7 @@ def main():
     elif args.brain_only:
         exchanges = init_exchanges(config)
         memory = Memory(config.data_path / "picsou.db")
-        portfolio = Portfolio(config.starting_capital)
+        portfolio = Portfolio(config.starting_capital, memory=memory)
         brain = BrainLoop(config, portfolio, memory, exchanges)
         result = brain.run_once()
         print(f"Brain result: {result}")

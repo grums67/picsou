@@ -651,6 +651,20 @@ th, td { white-space: nowrap; }
         </div>
 
         <div class="card">
+            <div class="card-title">📚 Leçons Apprises</div>
+            <div id="lessons-list" style="max-height:320px;overflow-y:auto;">
+                <div class="empty-state">Chargement...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">👁️ Observations Récentes</div>
+            <div id="observations-list" style="max-height:320px;overflow-y:auto;">
+                <div class="empty-state">Chargement...</div>
+            </div>
+        </div>
+
+        <div class="card">
             <div class="card-title">🌐 Aperçu du Marché</div>
             <div class="market-grid" id="market-grid">
                 <div class="empty-state">Aucune donnée de marché disponible</div>
@@ -946,6 +960,36 @@ function updateLearning(data) {
     document.getElementById('trades-done').textContent = data.trades_done || 0;
     document.getElementById('trades-required').textContent = data.trades_required || 100;
     document.getElementById('graduation-threshold').textContent = data.graduation_threshold || 100;
+
+    // Update lessons list
+    const lessonsDiv = document.getElementById('lessons-list');
+    if (lessonsDiv) {
+        const lessons = (data.lessons || []).filter(l => l.active !== false);
+        if (lessons.length === 0) {
+            lessonsDiv.innerHTML = '<div class="empty-state">Aucune leçon pour l\'instant</div>';
+        } else {
+            lessonsDiv.innerHTML = lessons.map(l =>
+                `<div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85em;line-height:1.4;">
+                    <span style="color:var(--yellow);margin-right:6px;">💡</span>${l.lesson || l}<br><span style="color:var(--muted);font-size:0.75em;margin-left:24px;">${l.timestamp ? new Date(l.timestamp).toLocaleString('fr-FR', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+                </div>`
+            ).join('');
+        }
+    }
+
+    // Update observations list
+    const obsDiv = document.getElementById('observations-list');
+    if (obsDiv) {
+        const obs = data.observations || [];
+        if (obs.length === 0) {
+            obsDiv.innerHTML = '<div class="empty-state">Aucune observation</div>';
+        } else {
+            obsDiv.innerHTML = obs.slice(0, 20).map(o =>
+                `<div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:0.85em;line-height:1.4;">
+                    <span style="color:var(--cyan);margin-right:6px;">👁️</span><span style="color:var(--muted);font-size:0.8em;">[${o.category || ''}]</span> ${o.content || o}<br><span style="color:var(--muted);font-size:0.75em;margin-left:24px;">${o.timestamp ? new Date(o.timestamp).toLocaleString('fr-FR', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : ''}</span>
+                </div>`
+            ).join('');
+        }
+    }
 }
 
 function updateMarket(data) {

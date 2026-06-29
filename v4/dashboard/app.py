@@ -243,10 +243,10 @@ def get_v4_lessons() -> list:
 
 
 async def get_v4_status() -> dict:
-    """Query the v4 health endpoint at localhost:3035."""
+    """Query the v4 health endpoint at localhost:3038."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("http://localhost:3035/api/health")
+            resp = await client.get("http://localhost:3038/api/health")
             if resp.status_code == 200:
                 return resp.json()
     except Exception:
@@ -347,6 +347,8 @@ def _auth_exempt(path: str) -> bool:
     return path in {
         "/login",
         "/setup",
+        "/api/market",
+        "/api/health",
         "/manifest.json",
         "/sw.js",
         "/static/icons/icon.svg",
@@ -793,7 +795,42 @@ async def get_lessons():
 
 @app.get("/api/market")
 async def get_market():
-    """Market data is not stored in SQLite for v4 — return empty."""
+    """Fetch live market data from OKX public API."""
+    symbols = ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
+    market = {}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for symbol in symbols:
+                try:
+                    resp = await client.get(
+                        f"https://www.okx.com/api/v5/market/ticker",
+                        params={"instId": symbol}
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("data") and len(data["data"]) > 0:
+                            t = data["data"][0]
+                            last_price = float(t.get("last", 0))
+                            open_price = float(t.get("open24h", 0))
+                            change_24h = ((last_price - open_price) / open_price * 100) if open_price > 0 else 0
+                            market[symbol] = {
+                                "price": last_price,
+                                "change_24h": round(change_24h, 2),
+                                "volume_24h": float(t.get("vol24h", 0)),
+                                "high_24h": float(t.get("high24h", 0)),
+                                "low_24h": float(t.get("low24h", 0)),
+                            }
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    # Return in format expected by dashboard: {exchange: {symbol: priceData}}
+    # All symbols from OKX, grouped under "okx"
+    okx_market = {}
+    for sym, info in market.items():
+        okx_market[sym] = info
+    if okx_market:
+        return {"okx": okx_market}
     return {}
 
 

@@ -139,6 +139,20 @@ class Memory:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_open_trades(self) -> List[Dict[str, Any]]:
+        """Get all open (unclosed) trades."""
+        rows = self._conn.execute(
+            "SELECT * FROM trades WHERE status='open' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_closed_trades(self) -> List[Dict[str, Any]]:
+        """Get all closed trades."""
+        rows = self._conn.execute(
+            "SELECT * FROM trades WHERE status='closed' ORDER BY id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_trades_by_strategy(self, strategy: str, limit: int = 100) -> List[Dict]:
         rows = self._conn.execute(
             "SELECT * FROM trades WHERE strategy=? ORDER BY id DESC LIMIT ?",
@@ -223,6 +237,17 @@ class Memory:
     # ── Observations ────────────────────────────────────────────────────
 
     def add_observation(self, category: str, content: str, relevance: str = "medium"):
+        """Add an observation, but skip if a very similar one already exists."""
+        # Deduplication: check if a similar observation exists in the last 50
+        recent = self._conn.execute(
+            "SELECT content FROM observations ORDER BY id DESC LIMIT 50"
+        ).fetchall()
+        normalized = content.strip().lower()
+        for row in recent:
+            if normalized in row[0].strip().lower() or row[0].strip().lower() in normalized:
+                # Similar observation already exists, skip
+                return
+
         self._conn.execute("""
             INSERT INTO observations (timestamp, category, content, relevance)
             VALUES (?, ?, ?, ?)
@@ -238,6 +263,29 @@ class Memory:
     # ── Lessons ─────────────────────────────────────────────────────────
 
     def add_lesson(self, lesson: str, context: str = ""):
+        """Add a lesson, but skip if a very similar one already exists."""
+        # Deduplication: check if a similar lesson exists among active lessons
+        active = self._conn.execute(
+            "SELECT lesson FROM lessons WHERE active=1"
+        ).fetchall()
+        normalized = lesson.strip().lower()
+        for row in active:
+            existing = row[0].strip().lower()
+            # Skip if one is a substring of the other (same core lesson)
+            if normalized in existing or existing in normalized:
+                return
+
+        # Also deactivate old lessons that are substrings of the new one
+        # (new one is more specific/refined)
+        for row in active:
+            existing = row[0].strip().lower()
+            if existing in normalized and existing != normalized:
+                # Find the id for this old lesson and deactivate it
+                self._conn.execute(
+                    "UPDATE lessons SET active=0 WHERE lesson=? AND active=1",
+                    (row[0],)
+                )
+
         self._conn.execute("""
             INSERT INTO lessons (timestamp, lesson, context) VALUES (?, ?, ?)
         """, (datetime.now(timezone.utc).isoformat(), lesson, context))
