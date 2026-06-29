@@ -227,6 +227,9 @@ class PicsouBrain:
         self.trading_knowledge: str = ""
         self._load_trading_knowledge()
 
+        # Cache for last computed technical indicators (reused by market awareness)
+        self._last_tech_indicators: Dict[str, Any] = {}
+
         # Write initial config file if it doesn't exist
         self._write_default_config()
 
@@ -551,6 +554,191 @@ class PicsouBrain:
 
         return "\n".join(lines)
 
+    def _summarize_market_context(self, market_context: Optional[Dict[str, Any]]) -> str:
+        """Format the market_context from MarketAwareness for LLM prompt injection.
+
+        Produces a clear, structured summary of market regime, macro events,
+        sentiment dynamics, macro indicators, LLM macro assessment, correlation
+        rules, and behavioral recommendations.
+        """
+        if not market_context:
+            return ""
+
+        lines = ["\n═══ MARKET AWARENESS (macro perception) ═══"]
+
+        # ── Market Regime ──
+        regime = market_context.get("market_regime", {})
+        if regime:
+            regime_name = regime.get("regime", "unknown").upper()
+            confidence = regime.get("confidence", 0)
+            vol_level = regime.get("volatility_level", "unknown")
+            trend_strength = regime.get("trend_strength", 0)
+            description = regime.get("description", "")
+            lines.append(f"MARKET REGIME: {regime_name} (confidence: {confidence:.0%})")
+            lines.append(f"  Volatility: {vol_level} | Trend strength: {trend_strength:.0%}")
+            lines.append(f"  {description}")
+
+        # ── Macro Indicators (real data: DXY, yields, VIX, BTC.D, total mcap) ──
+        indicators = market_context.get("macro_indicators", {})
+        if indicators:
+            lines.append("MACRO INDICATORS:")
+            dxy = indicators.get("dxy")
+            if dxy:
+                lines.append(f"  💵 DXY (Dollar Index): {dxy.get('value', 'N/A')} ({dxy.get('zone', 'unknown')})")
+                if dxy.get("trend"):
+                    lines.append(f"     Trend: {dxy['trend']}")
+            yields = indicators.get("us_10y_yield")
+            if yields:
+                lines.append(f"  📊 US 10Y Yield: {yields.get('value', 'N/A')}% ({yields.get('zone', 'unknown')})")
+                if yields.get("trend"):
+                    lines.append(f"     Trend: {yields['trend']}")
+            vix = indicators.get("vix")
+            if vix:
+                lines.append(f"  😨 VIX: {vix.get('value', 'N/A')} ({vix.get('zone', 'unknown')})")
+                if vix.get("trend"):
+                    lines.append(f"     Trend: {vix['trend']}")
+            btc_d = indicators.get("btc_dominance")
+            if btc_d:
+                lines.append(f"  ₿ BTC Dominance: {btc_d.get('value', 'N/A')}% ({btc_d.get('zone', 'unknown')})")
+            total_mcap = indicators.get("total_market_cap")
+            if total_mcap:
+                lines.append(f"  🌐 Total Crypto Mcap: {total_mcap.get('description', 'N/A')}")
+        else:
+            lines.append("MACRO INDICATORS: Data unavailable (API may be down)")
+
+        # ── Macro Assessment (LLM reasoning) ──
+        macro_assessment = market_context.get("macro_assessment")
+        if macro_assessment:
+            lines.append("MACRO ASSESSMENT (LLM reasoning):")
+            lines.append(f"  Regime confirmation: {macro_assessment.get('regime_confirmation', '?')}")
+            lines.append(f"  Risk outlook: {macro_assessment.get('risk_outlook', '?')}")
+            lines.append(f"  Time horizon: {macro_assessment.get('time_horizon', '?')}")
+            lines.append(f"  Reasoning: {macro_assessment.get('reasoning', '')}")
+            lines.append(f"  Advice: {macro_assessment.get('actionable_advice', '')}")
+
+        # ── Sentiment Profile ──
+        sentiment = market_context.get("sentiment_profile", {})
+        if sentiment:
+            cls = sentiment.get("classification", "unknown")
+            trend = sentiment.get("trend", "unknown")
+            score = sentiment.get("score", "?")
+            delta = sentiment.get("trend_delta", 0)
+            desc = sentiment.get("description", "")
+            lines.append(f"SENTIMENT PROFILE: {cls} (score: {score}/100, trend: {trend}, Δ{delta:+d})")
+            lines.append(f"  {desc}")
+
+        # ── Macro Events ──
+        events = market_context.get("macro_events", [])
+        if events:
+            lines.append(f"MACRO EVENTS ({len(events)} detected):")
+            for event in events[:5]:  # Top 5 by magnitude
+                impact = event.get("impact", "unknown")
+                magnitude = event.get("magnitude", 1)
+                keyword = event.get("keyword", "unknown")
+                category = event.get("category", "unknown")
+                impact_emoji = "🔴" if impact == "negative" else "🟢" if impact == "positive" else "🟡"
+                lines.append(f"  {impact_emoji} {keyword}: {impact} (magnitude {magnitude}/5, {category})")
+        else:
+            lines.append("MACRO EVENTS: No significant macro events detected")
+
+        # ── Recent News Headlines (from RSS feeds) ──
+        # Inject raw headlines so the LLM can reason about them directly
+        rss_headlines = market_context.get("rss_headlines", [])
+        if rss_headlines:
+            lines.append(f"RECENT NEWS HEADLINES ({len(rss_headlines)} headlines):")
+            for h in rss_headlines[:10]:
+                source = h.get("source", "unknown")
+                title = h.get("title", "")
+                if title:
+                    lines.append(f"  - [{source}] {title}")
+        else:
+            lines.append("RECENT NEWS HEADLINES: No headlines available")
+
+        # ── Deep Research Findings ──
+        deep_research = market_context.get("deep_research", [])
+        research_queries = market_context.get("research_queries", [])
+        fg_trend = market_context.get("fg_trend", {})
+        cg_context = market_context.get("coingecko_context", {})
+
+        if fg_trend:
+            lines.append("SENTIMENT TREND (30 days):")
+            current_cls = fg_trend.get("current_classification", "")
+            week_cls = fg_trend.get("week_ago_classification", "")
+            month_cls = fg_trend.get("month_ago_classification", "")
+            lines.append(f"  Current: {current_cls} ({fg_trend.get('current', '?')})")
+            lines.append(f"  Week ago: {week_cls} ({fg_trend.get('week_ago', '?')}) → {fg_trend.get('change_week', 0):+d} pts ({fg_trend.get('trend', 'unknown')})")
+            lines.append(f"  Month ago: {month_cls} ({fg_trend.get('month_ago', '?')}) → {fg_trend.get('change_month', 0):+d} pts")
+
+        if cg_context:
+            cg_global = cg_context.get("global", {})
+            cg_trending = cg_context.get("trending", [])
+            if cg_global:
+                lines.append("MARKET CONTEXT (CoinGecko):")
+                btc_dom = cg_global.get("btc_dominance", "N/A")
+                btc_note = ""
+                if isinstance(btc_dom, (int, float)):
+                    if btc_dom > 55:
+                        btc_note = " (BTC dominant, alt season not yet)"
+                    elif btc_dom < 42:
+                        btc_note = " (alt season in progress)"
+                lines.append(f"  BTC Dominance: {btc_dom}%{btc_note}")
+                lines.append(f"  ETH Dominance: {cg_global.get('eth_dominance', 'N/A')}%")
+                mcap = cg_global.get("total_market_cap_usd", 0)
+                if isinstance(mcap, (int, float)) and mcap > 0:
+                    lines.append(f"  Total Market Cap: ${mcap / 1e9:.1f}B")
+                chg = cg_global.get("market_cap_change_24h_pct", "N/A")
+                if isinstance(chg, (int, float)):
+                    lines.append(f"  24h Change: {chg:+.1f}%")
+                else:
+                    lines.append(f"  24h Change: {chg}")
+            if cg_trending:
+                trending_names = [f"{c['name']} ({c['symbol']})" for c in cg_trending[:5] if c.get("name")]
+                meme_keywords = ["pepe", "bonk", "wif", "doge", "shib", "floki", "meme"]
+                trending_lower = " ".join(trending_names).lower()
+                meme_trending = any(kw in trending_lower for kw in meme_keywords)
+                meme_note = " (⚠️ meme coins trending = risk-on speculation)" if meme_trending else ""
+                lines.append(f"  Trending: [{', '.join(trending_names)}]{meme_note}")
+
+        if research_queries:
+            lines.append("RESEARCH QUERIES GENERATED:")
+            for q in research_queries:
+                lines.append(f"  - \"{q}\"")
+
+        if deep_research:
+            lines.append("DEEP RESEARCH FINDINGS:")
+            for r in deep_research:
+                source = r.get("source", "unknown")
+                topic = r.get("topic", "")
+                summary = r.get("summary", "")[:200]
+                lines.append(f"  - [{source}] {topic}: {summary}")
+
+        # ── Macro Correlation Rules (from knowledge base) ──
+        # Inject the rules from the macro knowledge loaded by market_awareness
+        lines.append("MACRO CORRELATION RULES:")
+        lines.append("  • DXY > 103 + VIX > 25 → strong crypto sell-off (risk-off)")
+        lines.append("  • DXY < 95 + VIX < 15 → strong crypto rally (risk-on)")
+        lines.append("  • 10Y Yield > 4.5% → capital flows to bonds, pressuring BTC")
+        lines.append("  • BTC.D < 42% → altcoin season, SOL/ETH outperform")
+        lines.append("  • BTC.D > 58% → alt season ending, prefer BTC or cash")
+        lines.append("  • VIX > 35 → liquidity crisis likely, minimize positions")
+        lines.append("  • Recent Fed cut → bullish momentum, increase positions")
+        lines.append("  • Recent Fed hike → bearish, reduce positions")
+
+        # ── Behavioral Recommendations ──
+        recs = market_context.get("behavioral_recommendations", [])
+        if recs:
+            lines.append("BEHAVIORAL ADAPTATIONS:")
+            for rec in recs:
+                priority = rec.get("priority", "medium")
+                category = rec.get("category", "general")
+                recommendation = rec.get("recommendation", "")
+                priority_marker = "⚠️" if priority == "critical" else "⚡" if priority == "high" else "💡"
+                lines.append(f"  {priority_marker} [{category.upper()}] {recommendation}")
+
+        lines.append("════════════════════════════════════════════")
+
+        return "\n".join(lines)
+
     # ── Prompt builder ─────────────────────────────────────────────────
 
     def _build_prompt(self, market_data: Dict[str, Dict[str, Any]],
@@ -561,7 +749,8 @@ class PicsouBrain:
                       symbols: List[str],
                       risk_config: Any,
                       research_insights: Optional[Dict[str, Any]] = None,
-                      tech_summary: str = "") -> str:
+                      tech_summary: str = "",
+                      market_context: Optional[Dict[str, Any]] = None) -> str:
         """Build the full LLM prompt with all context."""
         # Build learning context section
         learning_section = ""
@@ -626,6 +815,7 @@ Note: In exploration mode, low Fear & Greed is an OPPORTUNITY for contrarian str
 {learning_section}
 {strategy_rules_section}
 {exploration_directive}
+{self._summarize_market_context(market_context)}
 CURRENT MARKET DATA:
 {self._summarize_market(market_data)}
 
@@ -641,9 +831,9 @@ MARKET SENTIMENT:
 {fng_context}
 {self._summarize_research(research_insights)}
 RISK RULES:
-- Max 20% of capital per position
-- Max 5 open positions simultaneously
-- Max 20% drawdown → pause all trading
+- Max {int(risk_config.max_position_pct * 100) if hasattr(risk_config, 'max_position_pct') else 20}% of capital per position
+- Max {getattr(risk_config, 'max_open_positions', 5)} open positions simultaneously
+- Max {int(getattr(risk_config, 'max_drawdown_pct', 0.20) * 100)}% drawdown → pause all trading
 - Available symbols: {', '.join(symbols)}
 - Only trade on configured exchanges with available data
 
@@ -682,7 +872,8 @@ If you decide to hold for all symbols, return an empty array []."""
                   journal: Any,
                   symbols: List[str],
                   risk_config: Any = None,
-                  research_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+                  research_insights: Optional[Dict[str, Any]] = None,
+                  market_context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Send context to the LLM and get structured decisions back.
 
         Returns a list of decision dicts. Falls back to EMA crossover
@@ -709,15 +900,18 @@ If you decide to hold for all symbols, return an empty array []."""
             if candles_dict:
                 tech_summary, tech_indicators = generate_technical_summary(candles_dict)
                 logger.info("Technical analysis generated for %d symbols", len(candles_dict))
+                # Store for reuse by market awareness
+                self._last_tech_indicators = tech_indicators
         except Exception as e:
             logger.warning("Technical analysis generation failed: %s", e)
 
-        # 3. Build prompt (with technical analysis and research insights)
+        # 3. Build prompt (with technical analysis, research insights, and market context)
         prompt = self._build_prompt(
             market_data, portfolio_mgr, journal,
             fng, headlines, symbols, risk_config,
             research_insights=research_insights,
             tech_summary=tech_summary,
+            market_context=market_context,
         )
         self.last_prompt = prompt
 

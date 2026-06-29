@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,6 +30,9 @@ class StrategyResearcher:
     Uses multiple web sources to find trending strategies, technical signals,
     risk factors, and market narrative. Results are cached with a configurable
     TTL to avoid spamming APIs.
+
+    Primary sources: RSS feeds (CoinTelegraph, CoinDesk, Decrypt, Yahoo Finance).
+    Fallback: DuckDuckGo search (often returns 0 results for news queries).
     """
 
     # Keywords for extracting strategy signals from text
@@ -54,6 +58,14 @@ class StrategyResearcher:
         "Support/Resistance": ["support level", "resistance level", "support zone", "resistance zone"],
         "Stochastic": ["stochastic", "stoch rsi", "stochastics"],
     }
+
+    # ── RSS feed sources ──
+    RSS_SOURCES = [
+        {"name": "CoinTelegraph", "url": "https://cointelegraph.com/rss"},
+        {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
+        {"name": "Decrypt", "url": "https://decrypt.co/feed"},
+        {"name": "Yahoo Finance Crypto", "url": "https://finance.yahoo.com/news/rssindex?s=cryptocurrency"},
+    ]
 
     def __init__(self, cache_path: str = "", cache_ttl: int = 1800,
                  max_sources: int = 5, enabled: bool = True) -> None:
@@ -141,7 +153,18 @@ class StrategyResearcher:
         risk_items: List[str] = []
         narrative_parts: List[str] = []
 
-        # Source 1: DuckDuckGo search
+        # Source 0: RSS feeds (PRIMARY — actually works, unlike DDG)
+        rss_results = self._fetch_rss_insights()
+        if rss_results:
+            all_snippets.extend(rss_results.get("snippets", []))
+            all_urls.extend(rss_results.get("urls", []))
+            strategy_mentions = self._merge_counts(
+                strategy_mentions, rss_results.get("strategy_mentions", {}))
+            signal_mentions = self._merge_counts(
+                signal_mentions, rss_results.get("signal_mentions", {}))
+            risk_items.extend(rss_results.get("risks", []))
+
+        # Source 1: DuckDuckGo search (FALLBACK — often returns 0 results)
         ddg_results = self._fetch_duckduckgo(symbols)
         if ddg_results:
             all_snippets.extend(ddg_results.get("snippets", []))
@@ -209,6 +232,88 @@ class StrategyResearcher:
         logger.info("Research insights updated: strategies=%s, signals=%s, risks=%d",
                      trending_strategies, technical_signals, len(risk_factors))
         return insights
+
+    # ── Source: RSS feeds (PRIMARY) ────────────────────────────────────────
+
+    def _fetch_rss_headlines(self, source_name: str, url: str, max_items: int = 10) -> List[str]:
+        """Fetch and parse headlines from an RSS feed.
+
+        Returns list of headline/description strings (combined).
+        """
+        headlines: List[str] = []
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0",
+                "Accept": "application/rss+xml, application/xml, text/xml, application/atom+xml, */*",
+            }
+            resp = requests.get(url, headers=headers, timeout=10)
+            resp.raise_for_status()
+
+            root = ET.fromstring(resp.content)
+
+            items = root.findall(".//item")
+            if not items:
+                items = root.findall(".//{http://www.w3.org/2005/Atom}entry")
+
+            for item in items[:max_items]:
+                title_el = item.find("title")
+                desc_el = item.find("description")
+                ns = {"atom": "http://www.w3.org/2005/Atom"}
+                if title_el is None:
+                    title_el = item.find("atom:title", ns)
+                if desc_el is None:
+                    desc_el = item.find("atom:summary", ns) or item.find("atom:content", ns)
+
+                title = title_el.text if title_el is not None and title_el.text else ""
+                desc = desc_el.text if desc_el is not None and desc_el.text else ""
+
+                # Clean HTML tags
+                title = re.sub(r"<[^>]+>", "", title).strip()
+                desc = re.sub(r"<[^>]+>", "", desc).strip()
+
+                if title:
+                    combined = title
+                    if desc:
+                        combined += f" — {desc}"
+                    headlines.append(combined[:300])
+
+            logger.debug("RSS %s: fetched %d headlines", source_name, len(headlines))
+        except Exception as e:
+            logger.debug("RSS fetch failed for %s (%s): %s", source_name, url, e)
+
+        return headlines
+
+    def _fetch_rss_insights(self) -> Optional[Dict[str, Any]]:
+        """Fetch strategy insights from crypto RSS feeds.
+
+        Primary source — these feeds actually return real data unlike DDG.
+        Returns dict with snippets, urls, strategy/signal/risk mentions.
+        """
+        all_snippets: List[str] = []
+        all_urls: List[str] = []
+
+        for source in self.RSS_SOURCES:
+            headlines = self._fetch_rss_headlines(source["name"], source["url"], max_items=8)
+            all_snippets.extend(headlines)
+
+        if not all_snippets:
+            logger.debug("RSS: no headlines fetched from any source")
+            return None
+
+        # Extract structured signals
+        strategy_mentions = self._extract_strategy_mentions(all_snippets)
+        signal_mentions = self._extract_technical_signals(all_snippets)
+        risks = self._extract_risk_factors(all_snippets)
+
+        logger.info("RSS insights: fetched %d headlines from %d sources",
+                     len(all_snippets), len(self.RSS_SOURCES))
+        return {
+            "snippets": all_snippets,
+            "urls": all_urls,
+            "strategy_mentions": strategy_mentions,
+            "signal_mentions": signal_mentions,
+            "risks": risks,
+        }
 
     # ── Source: DuckDuckGo ───────────────────────────────────────────────
 

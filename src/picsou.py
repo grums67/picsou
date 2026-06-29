@@ -20,6 +20,7 @@ from .exchanges.bitstamp import BitstampExchange
 from .exchanges.base import BaseExchange
 from .journal import DecisionJournal
 from .learning import LearningEngine
+from .market_awareness import MarketAwareness
 from .portfolio import PortfolioManager
 from .strategy_researcher import StrategyResearcher
 from .self_reflect import SelfReflect
@@ -51,6 +52,7 @@ class PicsouAgent:
             elimination_win_rate=self.config.learning.elimination_win_rate,
             elimination_max_drawdown=self.config.learning.elimination_max_drawdown,
             min_exploration_trades=self.config.learning.min_exploration_trades,
+            max_weight_pct=self.config.learning.max_weight_pct,
         )
 
         # Initialize exchanges
@@ -91,6 +93,24 @@ class PicsouAgent:
             max_sources=self.config.research_max_sources,
             enabled=self.config.research_enabled,
         )
+
+        # Initialize market awareness (macro regime detection + event scanning + macro data fetching)
+        self.market_awareness = MarketAwareness(
+            cache_ttl=self.config.market_awareness_cache_ttl,
+            llm_url=self.config.llm_url,
+            llm_api_key=self.config.llm_api_key,
+            llm_model=self.config.llm_model,
+            llm_temperature=0.2,  # Low temperature for consistent macro analysis
+            config_path=self.config.llm_config_path,
+        )
+
+        # Wire deep research config flags
+        self.market_awareness.deep_research_enabled = self.config.deep_research_enabled
+        self.market_awareness.deep_research_max_queries = self.config.deep_research_max_queries
+        self.market_awareness.deep_research_wikipedia_enabled = self.config.deep_research_wikipedia_enabled
+        self.market_awareness.deep_research_rss_search = self.config.deep_research_rss_search
+        self.market_awareness.fg_trend_enabled = self.config.fg_trend_enabled
+        self.market_awareness.coingecko_context_enabled = self.config.coingecko_context_enabled
 
         # Initialize self-reflection engine
         self.reflector = SelfReflect(
@@ -185,7 +205,8 @@ class PicsouAgent:
         return sentiment
 
     def ask_brain(self, market_data: Dict[str, Dict[str, Any]],
-                  research_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+                  research_insights: Optional[Dict[str, Any]] = None,
+                  market_context: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Ask the LLM brain for trading decisions based on current context.
 
         Returns:
@@ -198,6 +219,7 @@ class PicsouAgent:
             symbols=self.symbols,
             risk_config=self.config.risk,
             research_insights=research_insights,
+            market_context=market_context,
         )
         return decisions
 
@@ -282,6 +304,13 @@ class PicsouAgent:
             # Get the full symbol for the exchange
             symbol = self._get_exchange_symbol(exchange_name, symbol_base)
 
+            # Apply probation position size limit: strategies on probation
+            # are capped at 15% instead of the normal max_position_pct (20%)
+            probation_max_pct = self.learning.get_position_size_pct(strategy_type)
+            if probation_max_pct < self.config.risk.max_position_pct:
+                logger.info("Strategy '%s' on probation: position capped at %.0f%%",
+                            strategy_type, probation_max_pct * 100)
+
             # === BUY logic ===
             if action == "buy":
                 # Check max open positions
@@ -291,7 +320,8 @@ class PicsouAgent:
                     continue
 
                 # Position size: use amount_pct from LLM, capped by risk limits
-                position_pct = min(amount_pct, self.config.risk.max_position_pct)
+                # and probation limits (15% for probation strategies vs 20% normal)
+                position_pct = min(amount_pct, probation_max_pct)
                 position_size_eur = balance * position_pct
 
                 if position_size_eur < 10:  # Minimum 10 EUR per trade
@@ -623,6 +653,10 @@ class PicsouAgent:
         """
         logger.info("=== Picsou agent loop started ===")
 
+        # Save base risk parameters (will be temporarily adapted by market awareness)
+        self._base_max_position_pct = self.config.risk.max_position_pct
+        self._base_max_open_positions = self.config.risk.max_open_positions
+
         # Load self-reflection rules (hot-reload from disk each cycle)
         self.reflector.load_rules()
         self._strategy_rules = self.reflector.current_rules
@@ -664,9 +698,97 @@ class PicsouAgent:
         except Exception as e:
             logger.warning("Strategy research failed (non-critical): %s", e)
 
+        # 2.7 Run market awareness (regime detection + macro event scanning)
+        market_context = None
+        adapted_risk = None
+        try:
+            # Get tech indicators from the brain's last analysis if available
+            tech_indicators = getattr(self.brain, '_last_tech_indicators', {})
+            if not tech_indicators and market_data:
+                # Compute inline if not yet available
+                from src.technical_analysis import generate_technical_summary
+                candles_dict = {}
+                for key, data in market_data.items():
+                    candles = data.get("candles", [])
+                    symbol = data.get("base", key.split(":")[-1] if ":" in key else key)
+                    if candles:
+                        candles_dict[symbol] = candles
+                if candles_dict:
+                    _, tech_indicators = generate_technical_summary(candles_dict)
+
+            market_context = self.market_awareness.analyze(
+                market_data=market_data,
+                sentiment=sentiment,
+                tech_indicators=tech_indicators or None,
+            )
+
+            # Inject RSS headlines into market context for LLM prompt
+            try:
+                rss_headlines = self.market_awareness.get_rss_headlines(max_items=10)
+                if rss_headlines:
+                    market_context["rss_headlines"] = rss_headlines
+                    logger.info("Injected %d RSS headlines into market context", len(rss_headlines))
+            except Exception as e:
+                logger.debug("RSS headlines injection failed (non-critical): %s", e)
+
+            # Run macro reasoning via LLM (uses real macro indicators + events + sentiment)
+            # Hot-reload LLM model from config file (same as brain does)
+            try:
+                import json as _json
+                _config_file = Path(self.config.llm_config_path)
+                if _config_file.exists():
+                    with open(_config_file, "r") as _f:
+                        _llm_cfg = _json.load(_f)
+                    self.market_awareness.llm_model = _llm_cfg.get("llm_model", self.config.llm_model)
+            except Exception:
+                pass
+
+            try:
+                macro_assessment = self.market_awareness.reason_about_macro(market_context)
+                if macro_assessment:
+                    market_context["macro_assessment"] = macro_assessment
+                    logger.info(
+                        "Macro assessment: regime=%s, risk=%s, horizon=%s",
+                        macro_assessment.get("regime_confirmation", "?"),
+                        macro_assessment.get("risk_outlook", "?"),
+                        macro_assessment.get("time_horizon", "?"),
+                    )
+            except Exception as e:
+                logger.warning("Macro reasoning failed (non-critical): %s", e)
+
+            # Adapt risk parameters based on market regime
+            adapted_risk = self.market_awareness.get_adapted_risk_params(
+                market_context, self.config.risk
+            )
+
+            # Apply adapted risk parameters to config (temporarily for this cycle)
+            if adapted_risk.get("adapted"):
+                self.config.risk.max_position_pct = adapted_risk["max_position_pct"]
+                self.config.risk.max_open_positions = adapted_risk["max_open_positions"]
+                logger.info(
+                    "Market awareness: regime=%s, adapted risk: max_position_pct=%.2f%%, max_open_positions=%d",
+                    adapted_risk["regime"],
+                    adapted_risk["max_position_pct"] * 100,
+                    adapted_risk["max_open_positions"],
+                )
+
+            logger.info(
+                "Market awareness: regime=%s (conf=%.2f), events=%d, sentiment=%s",
+                market_context["market_regime"]["regime"],
+                market_context["market_regime"]["confidence"],
+                len(market_context["macro_events"]),
+                market_context["sentiment_profile"]["classification"],
+            )
+        except Exception as e:
+            logger.warning("Market awareness failed (non-critical): %s", e)
+
         logger.info("Asking LLM brain for decisions (exploration=%s, under-explored=%s)...",
                      in_exploration_phase, underexplored)
-        llm_decisions = self.ask_brain(market_data, research_insights=research_insights)
+        llm_decisions = self.ask_brain(
+            market_data,
+            research_insights=research_insights,
+            market_context=market_context,
+        )
         logger.info("LLM brain returned %d decisions", len(llm_decisions))
 
         # 3.5 Exploration fallback: if LLM returned no decisions or only holds
@@ -754,6 +876,10 @@ class PicsouAgent:
         summary["decisions"] = decisions
         summary["llm_decisions_count"] = len(llm_decisions)
         summary["sentiment"] = sentiment
+        if market_context:
+            summary["market_context"] = market_context
+        if adapted_risk:
+            summary["adapted_risk"] = adapted_risk
         if eval_result:
             summary["learning_evaluation"] = eval_result
         if reflection_result:
@@ -761,6 +887,10 @@ class PicsouAgent:
 
         logger.info("=== Picsou agent loop completed: %d decisions ===",
                      len(decisions))
+
+        # Restore base risk parameters (market awareness adaptation is per-cycle only)
+        self.config.risk.max_position_pct = self._base_max_position_pct
+        self.config.risk.max_open_positions = self._base_max_open_positions
 
         # Persist brain status for dashboard to read
         try:

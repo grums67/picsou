@@ -28,11 +28,12 @@ class RiskConfig:
 class LearningConfig:
     """Learning phase thresholds."""
     win_rate_threshold: float = 0.55
-    min_trades: int = 5
+    min_trades: int = 3
     min_days: int = 1
     elimination_win_rate: float = 0.50
     elimination_max_drawdown: float = 0.30
     min_exploration_trades: int = 3  # Don't eliminate strategies with fewer trades than this
+    max_weight_pct: float = 0.40  # Cap individual strategy weight at 40%
 
 
 @dataclass
@@ -101,6 +102,17 @@ class PicsouConfig:
     research_enabled: bool = True
     research_cache_ttl: int = 1800  # 30 minutes
     research_max_sources: int = 5
+
+    # ── Market awareness (macro regime detection + event scanning) ─────────
+    market_awareness_cache_ttl: int = 900  # 15 minutes
+
+    # ── Market awareness deep research ────────────────────────────────────
+    deep_research_enabled: bool = True
+    deep_research_max_queries: int = 5
+    deep_research_wikipedia_enabled: bool = True
+    deep_research_rss_search: bool = True
+    fg_trend_enabled: bool = True
+    coingecko_context_enabled: bool = True
 
     # ── Exploration phase ─────────────────────────────────────────────────
     # When True, force the agent to test under-explored strategies

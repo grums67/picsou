@@ -540,6 +540,92 @@ async def get_learning():
     return learning
 
 
+@app.get("/api/learning/strategies")
+async def get_learning_strategies():
+    """Return a summary per strategy: name, active, probation, win_rate, pnl, weight, trades."""
+    learning = _load_json("learning.json", {})
+    scores = learning.get("scores", {})
+    if not scores:
+        return {"strategies": []}
+    result = []
+    for name, s in scores.items():
+        if not isinstance(s, dict):
+            continue
+        result.append({
+            "name": s.get("name", name),
+            "active": s.get("active", False),
+            "probation": s.get("probation", False),
+            "probation_trades": s.get("probation_trades", 0),
+            "win_rate": round(s.get("win_rate", 0), 4),
+            "avg_profit": round(s.get("avg_profit", 0), 6),
+            "total_pnl": round(s.get("total_profit", 0), 4),
+            "weight": round(s.get("weight", 0), 4),
+            "total_trades": s.get("total_trades", 0),
+            "winning_trades": s.get("winning_trades", 0),
+            "losing_trades": s.get("losing_trades", 0),
+            "max_drawdown": round(s.get("max_drawdown", 0), 4),
+            "sharpe_ratio": round(s.get("sharpe_ratio", 0), 4),
+        })
+    return {"strategies": result}
+
+
+@app.get("/api/learning/backtest/{strategy}")
+async def backtest_strategy(strategy: str):
+    """Run an on-demand backtest for a strategy and return results."""
+    import sys
+    sys.path.insert(0, "/root/PROJECTS/picsou")
+    from src.backtest import Backtester
+    backtester = Backtester(data_path=DATA_DIR)
+    result = backtester.backtest_strategy(strategy)
+    return result.to_dict()
+
+
+@app.get("/api/learning/history")
+async def get_learning_history():
+    """Return the evolution of strategy weights/win_rates over time.
+
+    Since we don't have historical snapshots, return current scores with
+    metadata about when learning evaluations happened.
+    """
+    learning = _load_json("learning.json", {})
+    scores = learning.get("scores", {})
+    result = {
+        "last_evaluation": learning.get("last_evaluation"),
+        "evaluation_count": learning.get("evaluation_count", 0),
+        "current_scores": {},
+    }
+    for name, s in scores.items():
+        if not isinstance(s, dict):
+            continue
+        result["current_scores"][name] = {
+            "weight": round(s.get("weight", 0), 4),
+            "win_rate": round(s.get("win_rate", 0), 4),
+            "active": s.get("active", False),
+            "probation": s.get("probation", False),
+            "probation_trades": s.get("probation_trades", 0),
+            "total_trades": s.get("total_trades", 0),
+        }
+
+    # Try to extract trend data from journal - show strategy evolution
+    journal_entries = _load_journal(200)
+    if journal_entries:
+        # Group by strategy and track cumulative win rate over time
+        strategy_timeline = {}
+        for entry in journal_entries:
+            strat = entry.get("strategy", "unknown")
+            action = entry.get("action", "")
+            if strat not in strategy_timeline:
+                strategy_timeline[strat] = []
+            strategy_timeline[strat].append({
+                "timestamp": entry.get("timestamp", ""),
+                "action": action,
+                "symbol": entry.get("symbol", ""),
+            })
+        result["journal_timeline"] = strategy_timeline
+
+    return result
+
+
 @app.get("/api/market")
 async def get_market():
     market = _load_json("market.json", {})
