@@ -1,0 +1,1572 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="theme-color" content="#0a0e17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Picsou">
+<meta name="application-name" content="Picsou">
+<meta name="description" content="Agent de trading crypto autonome — Dashboard temps réel">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+<title>Picsou - Trading Crypto Autonome</title>
+<style>
+:root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #111827;
+    --bg-card: #1a1f2e;
+    --bg-hover: #232940;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --green: #22c55e;
+    --green-dim: #166534;
+    --red: #ef4444;
+    --red-dim: #991b1b;
+    --yellow: #eab308;
+    --blue: #3b82f6;
+    --purple: #a855f7;
+    --orange: #f97316;
+    --border: #2d3748;
+    --radius: 12px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+    max-width: 100vw;
+    overflow-x: clip;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Header */
+.header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    overflow: hidden;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    transition: box-shadow 0.3s ease;
+}
+.header.scrolled {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.header-left { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; }
+.logo { font-size: 24px; flex-shrink: 0; }
+.header-title { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; white-space: nowrap; }
+.phase-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.phase-learning { background: var(--yellow); color: #000; }
+.phase-trading { background: var(--green); color: #000; }
+.header-right { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; overflow: hidden; }
+.uptime-label { font-weight: 600; color: var(--text-primary); }
+.last-cycle-label { font-size: 12px; }
+
+/* Container */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+    padding-bottom: 50px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Cards */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    min-width: 0;
+}
+
+.card-title {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+/* Stats row */
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+.stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+}
+.stat-value {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+.stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.positive { color: var(--green); }
+.negative { color: var(--red); }
+
+/* Two-column layout */
+.two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    min-width: 0;
+}
+@media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; }
+}
+
+/* Positions table */
+.table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    min-width: 0;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 400px;
+}
+th {
+    text-align: left;
+    padding: 8px 10px;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+tr:hover td { background: var(--bg-hover); }
+.side-long { color: var(--green); font-weight: 600; }
+.side-short { color: var(--red); font-weight: 600; }
+
+/* Decisions feed */
+.decision-item {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: break-word;
+    word-break: break-word;
+}
+.decision-item:last-child { border-bottom: none; }
+.decision-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    font-size: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.decision-time { color: var(--text-muted); }
+.decision-strategy {
+    background: var(--bg-hover);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.decision-action {
+    font-weight: 700;
+    font-size: 13px;
+}
+.action-buy { color: var(--green); }
+.action-sell { color: var(--red); }
+.action-hold { color: var(--yellow); }
+.decision-symbol { font-weight: 600; }
+.confidence-bar {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    margin-top: 4px;
+}
+.confidence-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--blue);
+}
+.decision-reasoning {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* Strategy cards */
+.strategies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+}
+.strategy-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+}
+.strategy-name {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+}
+.strategy-stat {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+.strategy-stat span:last-child { font-weight: 600; color: var(--text-primary); }
+
+/* Learning progress */
+.progress-container { margin-top: 8px; }
+.progress-bar-bg {
+    height: 24px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+}
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 12px;
+    background: linear-gradient(90deg, var(--green-dim), var(--green));
+    transition: width 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 10px;
+    min-width: 40px;
+}
+.progress-text {
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+}
+.progress-details {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* Market overview */
+.market-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+}
+.exchange-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+}
+.exchange-name {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+.market-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.market-symbol { color: var(--text-secondary); }
+.market-price { font-weight: 600; font-family: 'Courier New', monospace; }
+.market-change { font-size: 11px; font-weight: 600; }
+
+/* PnL Chart */
+.chart-container {
+    width: 100%;
+    height: 180px;
+    position: relative;
+}
+#pnl-chart {
+    width: 100%;
+    height: 100%;
+}
+
+/* Kill switch */
+.kill-section {
+    text-align: center;
+    padding: 20px;
+}
+.kill-btn {
+    background: var(--red-dim);
+    color: #fff;
+    border: 3px solid var(--red);
+    border-radius: 12px;
+    padding: 18px 48px;
+    font-size: 20px;
+    font-weight: 800;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    transition: all 0.2s;
+    user-select: none;
+}
+.kill-btn:hover {
+    background: var(--red);
+    box-shadow: 0 0 30px rgba(239, 68, 68, 0.5);
+}
+.kill-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.kill-btn.confirm {
+    background: var(--red);
+    animation: pulse 0.5s infinite;
+}
+@keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+}
+.kill-status {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* Brain config section */
+.brain-config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+.brain-config-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.brain-config-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+.brain-config-value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+.brain-change-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.model-select {
+    flex: 1;
+    min-width: 220px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+.model-select:focus {
+    outline: none;
+    border-color: var(--green);
+}
+.model-save-btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: none;
+    background: var(--green);
+    color: #000;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.model-save-btn:hover {
+    background: var(--green-dim);
+    transform: translateY(-1px);
+}
+.model-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.model-save-status {
+    font-size: 12px;
+    font-weight: 600;
+}
+.model-save-status.success { color: var(--green); }
+.model-save-status.error { color: var(--red); }
+
+/* Status indicator */
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: blink 2s infinite;
+}
+.status-dot.active { background: var(--green); }
+.status-dot.stopped { background: var(--red); animation: none; }
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* Connection status */
+.connection-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 6px 16px;
+    font-size: 11px;
+    text-align: center;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    z-index: 100;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+}
+.connection-bar.connected { color: var(--green); }
+.connection-bar.disconnected { color: var(--red); }
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 30px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+/* Table responsive */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+th, td { white-space: nowrap; }
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+    .header {
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        gap: 6px;
+    }
+    .header-left { flex: 1 1 auto; gap: 8px; }
+    .header-right {
+        flex: 1 1 100%;
+        justify-content: space-between;
+        font-size: 12px;
+        gap: 8px;
+    }
+    .header-title { font-size: 18px; }
+    .phase-badge { font-size: 10px; padding: 2px 8px; }
+    .container { padding: 10px; gap: 10px; }
+    .card { padding: 12px; }
+    .card-title { font-size: 11px; margin-bottom: 8px; }
+    .stats-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat-card { padding: 10px; }
+    .stat-value { font-size: 18px; }
+    .stat-label { font-size: 10px; }
+    .market-grid { grid-template-columns: 1fr; }
+    .kill-btn { padding: 14px 28px; font-size: 16px; }
+    .chart-container { height: 150px; }
+    .last-cycle-label { display: none; }
+}
+
+@media (max-width: 400px) {
+    .header { padding: 8px 10px; }
+    .header-title { font-size: 16px; }
+    .phase-badge { font-size: 9px; padding: 2px 6px; }
+    .container { padding: 8px; gap: 8px; }
+    .stats-row { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat-card { padding: 8px; }
+    .stat-value { font-size: 16px; }
+    .stat-label { font-size: 9px; }
+    .card { padding: 10px; }
+    .strategies-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <span class="logo">🪙</span>
+        <span class="header-title">Picsou</span>
+        <span id="phase-badge" class="phase-badge phase-learning">APPRENTISSAGE</span>
+    </div>
+    <div class="header-right">
+        <span><span class="status-dot active" id="status-dot"></span><span id="status-text">En ligne</span></span>
+        <span>⏱ <span class="uptime-label" id="uptime">00h00m00s</span></span>
+        <span id="last-cycle" class="last-cycle-label">Dernier cycle: —</span>
+        <button onclick="handleRefreshDisplay()" style="background:none;border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;margin-left:6px;" title="Rafraîchir l'affichage">🔄</button>
+    </div>
+</div>
+
+<div class="container">
+
+    <!-- Portfolio stats -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-label">💰 Solde Total</div>
+            <div class="stat-value" id="total-balance">0,00 €</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">📈 P&L</div>
+            <div class="stat-value" id="pnl-value">0,00 €</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">📊 P&L (%)</div>
+            <div class="stat-value" id="pnl-pct">0,00 %</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">📋 Positions</div>
+            <div class="stat-value" id="position-count">0</div>
+        </div>
+    </div>
+
+    <!-- PnL Chart -->
+    <div class="card">
+        <div class="card-title">📉 Évolution du P&L</div>
+        <div class="chart-container">
+            <canvas id="pnl-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Positions + Decisions -->
+    <div class="two-col">
+        <div class="card">
+            <div class="card-title">📊 Positions Ouvertes</div>
+            <div class="table-wrap">
+                <table id="positions-table">
+                    <thead>
+                        <tr>
+                            <th>Exchange</th>
+                            <th>Symbole</th>
+                            <th>Côté</th>
+                            <th>Montant</th>
+                            <th>Entrée</th>
+                            <th>Actuel</th>
+                            <th>P&L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="positions-body">
+                        <tr><td colspan="7" class="empty-state">Aucune position ouverte</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">🧠 Dernières Décisions</div>
+            <div id="decisions-feed" style="max-height:400px;overflow-y:auto;overflow-x:hidden;">
+                <div class="empty-state">Aucune décision enregistrée</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategies -->
+    <div class="card">
+        <div class="card-title">🎯 Performance des Stratégies</div>
+        <div class="strategies-grid" id="strategies-grid">
+            <div class="empty-state">Aucune donnée de stratégie disponible</div>
+        </div>
+    </div>
+
+    <!-- Learning + Market -->
+    <div class="two-col">
+        <div class="card">
+            <div class="card-title">🎓 Progression de l'Apprentissage</div>
+            <div class="progress-container">
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progress-fill" style="width: 0%;">
+                        <span class="progress-text" id="progress-pct">0%</span>
+                    </div>
+                </div>
+                <div class="progress-details">
+                    <span>Trades: <strong id="trades-done">0</strong> / <span id="trades-required">100</span></span>
+                    <span>Seuil de diplôme: <strong id="graduation-threshold">100</strong> trades</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">🌐 Aperçu du Marché</div>
+            <div class="market-grid" id="market-grid">
+                <div class="empty-state">Aucune donnée de marché disponible</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- LLM Brain Config -->
+    <div class="card" id="brain-config-card">
+        <div class="card-title">🧠 Configuration LLM</div>
+        <div class="brain-config-grid">
+            <div class="brain-config-item">
+                <span class="brain-config-label">Modèle actif</span>
+                <span class="brain-config-value" id="brain-model">—</span>
+            </div>
+            <div class="brain-config-item">
+                <span class="brain-config-label">Statut</span>
+                <span class="brain-config-value" id="brain-status">—</span>
+            </div>
+            <div class="brain-config-item">
+                <span class="brain-config-label">Tokens utilisés</span>
+                <span class="brain-config-value" id="brain-tokens">—</span>
+            </div>
+            <div class="brain-config-item">
+                <span class="brain-config-label">Température</span>
+                <span class="brain-config-value" id="brain-temperature">—</span>
+            </div>
+            <div class="brain-config-item">
+                <span class="brain-config-label">Max tokens</span>
+                <span class="brain-config-value" id="brain-max-tokens">—</span>
+            </div>
+        </div>
+        <div class="brain-change-section">
+            <label class="brain-config-label" for="model-select">Changer de modèle :</label>
+            <select id="model-select" class="model-select" onchange="updateModelHint()">
+                <option value="">Chargement...</option>
+            </select>
+            <button id="model-save-btn" class="model-save-btn" onclick="saveModelConfig()">
+                Appliquer
+            </button>
+            <span id="model-save-status" class="model-save-status"></span>
+            <div id="model-hint" style="margin-top:8px;padding:8px 12px;background:var(--bg-secondary);border-radius:6px;font-size:12px;color:var(--text-secondary);line-height:1.5;display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Agent Activity Log -->
+    <div class="card" id="log-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="card-title" style="margin-bottom:0;">📋 Journal d'Activité en Direct</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);cursor:pointer;">
+                    <input type="checkbox" id="log-autoscroll" checked style="accent-color:var(--green);">
+                    Auto-scroll
+                </label>
+                <button id="log-clear-btn" style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;" onclick="clearLog()">Effacer</button>
+            </div>
+        </div>
+        <div id="log-panel" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:8px;height:220px;overflow-y:auto;font-family:'Courier New',monospace;font-size:11.5px;line-height:1.55;padding:10px 12px;">
+            <div style="color:var(--text-muted);">Chargement du journal...</div>
+        </div>
+    </div>
+
+    <!-- Kill Switch -->
+    <div class="card kill-section">
+        <div class="card-title" style="margin-bottom:16px;">🛑 Arrêt d'Urgence</div>
+        <button class="kill-btn" id="kill-btn" onclick="handleKill()">ARRÊT D'URGENCE</button>
+        <div class="kill-status" id="kill-status"></div>
+    </div>
+</div>
+
+<!-- Connection bar -->
+<div class="connection-bar disconnected" id="connection-bar">
+    Connexion au serveur...
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────
+let pnlHistory = [];
+let killConfirmPending = false;
+let killConfirmTimer = null;
+let ws = null;
+let wsRetries = 0;
+
+// ─── Sticky header shadow on scroll ─────────────────────────────────────
+(function() {
+    const header = document.querySelector('.header');
+    function onScroll() {
+        if (window.scrollY > 10) {
+            header.classList.add('scrolled');
+        } else {
+            header.classList.remove('scrolled');
+        }
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+})();
+
+// ─── Formatting ───────────────────────────────────────────────────────────
+function fmtMoney(v) {
+    const n = parseFloat(v) || 0;
+    return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+}
+function fmtPct(v) {
+    const n = parseFloat(v) || 0;
+    return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' %';
+}
+function fmtPrice(v) {
+    const n = parseFloat(v) || 0;
+    if (n > 1000) return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (n > 1) return n.toFixed(4);
+    return n.toFixed(6);
+}
+function fmtAmount(v) {
+    const n = parseFloat(v) || 0;
+    if (n >= 10) return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    if (n >= 1) return n.toFixed(4);
+    return n.toFixed(6);
+}
+function fmtTime(ts) {
+    if (!ts) return '—';
+    try {
+        const d = new Date(ts);
+        return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch { return ts; }
+}
+
+function classForPnl(v) {
+    const n = parseFloat(v) || 0;
+    if (n > 0) return 'positive';
+    if (n < 0) return 'negative';
+    return '';
+}
+
+// ─── API Fetch ────────────────────────────────────────────────────────────
+async function fetchAPI(endpoint, options) {
+    try {
+        const r = await fetch(endpoint, {credentials: 'same-origin', ...options});
+        if (r.status === 401) {
+            // Session expired, redirect to login
+            window.location.href = '/login';
+            return null;
+        }
+        return await r.json();
+    } catch (e) {
+        console.error('API error:', endpoint, e);
+        return null;
+    }
+}
+
+// ─── Update functions ─────────────────────────────────────────────────────
+function updateStatus(data) {
+    if (!data) return;
+    const badge = document.getElementById('phase-badge');
+    const phase = (data.phase || 'LEARNING').toUpperCase();
+    badge.textContent = phase === 'LEARNING' ? 'APPRENTISSAGE' : 'TRADING ACTIF';
+    badge.className = 'phase-badge ' + (phase === 'TRADING' ? 'phase-trading' : 'phase-learning');
+    document.getElementById('uptime').textContent = data.uptime_formatted || '00h00m00s';
+    document.getElementById('last-cycle').textContent = 'Dernier cycle: ' + fmtTime(data.last_cycle);
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    if (data.kill_switch_active) {
+        dot.className = 'status-dot stopped';
+        txt.textContent = 'Arrêté';
+    } else {
+        dot.className = 'status-dot active';
+        txt.textContent = 'En ligne';
+    }
+}
+
+function updatePortfolio(data) {
+    if (!data) return;
+    const pnl = parseFloat(data.pnl) || 0;
+    const pnlPct = parseFloat(data.pnl_pct) || 0;
+    document.getElementById('total-balance').textContent = fmtMoney(data.balance);
+    const pnlEl = document.getElementById('pnl-value');
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + fmtMoney(data.pnl);
+    pnlEl.className = 'stat-value ' + classForPnl(pnl);
+    const pnlPctEl = document.getElementById('pnl-pct');
+    pnlPctEl.textContent = (pnlPct >= 0 ? '+' : '') + fmtPct(data.pnl_pct);
+    pnlPctEl.className = 'stat-value ' + classForPnl(pnlPct);
+    // Handle positions as dict or list
+    const posList = data.positions || [];
+    const posCount = Array.isArray(posList) ? posList.length : (typeof posList === 'object' ? Object.keys(posList).length : 0);
+    document.getElementById('position-count').textContent = posCount;
+
+    // Update PnL chart history
+    pnlHistory.push({ time: new Date(), value: pnl });
+    if (pnlHistory.length > 200) pnlHistory.shift();
+    drawPnlChart();
+}
+
+function updatePositions(data) {
+    if (!data) return;
+    let positions = data.positions || [];
+    // Handle positions stored as a dict keyed by id (convert to list)
+    if (!Array.isArray(positions) && typeof positions === 'object') {
+        positions = Object.values(positions);
+    }
+    const tbody = document.getElementById('positions-body');
+    if (!positions.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Aucune position ouverte</td></tr>';
+        return;
+    }
+    tbody.innerHTML = positions.map(p => {
+        const side = (p.side || 'long').toLowerCase();
+        const sideClass = side === 'long' ? 'side-long' : 'side-short';
+        const sideText = side === 'long' ? 'LONG' : 'SHORT';
+        // Compute unrealized P&L per position if current_price is available
+        let pnl = parseFloat(p.pnl || p.unrealized_pnl || 0);
+        if (!pnl && p.current_price && p.entry_price) {
+            const cp = parseFloat(p.current_price);
+            const ep = parseFloat(p.entry_price);
+            const amt = parseFloat(p.amount || 0);
+            const fee = parseFloat(p.fee || 0);
+            if (cp > 0 && ep > 0) {
+                pnl = side === 'long' ? (cp - ep) * amt - fee : (ep - cp) * amt - fee;
+            }
+        }
+        const pnlStr = (pnl >= 0 ? '+' : '') + fmtMoney(pnl);
+        const curPrice = p.current_price || p.mark_price || p.price || null;
+        return `<tr>
+            <td>${p.exchange || p.platform || '—'}</td>
+            <td>${p.symbol || p.pair || '—'}</td>
+            <td><span class="${sideClass}">${sideText}</span></td>
+            <td>${fmtAmount(p.amount || 0)}</td>
+            <td>${fmtPrice(p.entry_price || p.entry || 0)}</td>
+            <td>${curPrice !== null ? fmtPrice(curPrice) : '—'}</td>
+            <td class="${classForPnl(pnl)}">${pnlStr}</td>
+        </tr>`;
+    }).join('');
+}
+
+function updateDecisions(data) {
+    if (!data) return;
+    const decisions = data.decisions || [];
+    const feed = document.getElementById('decisions-feed');
+    if (decisions.length === 0) {
+        feed.innerHTML = '<div class="empty-state">Aucune décision enregistrée</div>';
+        return;
+    }
+    feed.innerHTML = decisions.reverse().map(d => {
+        const action = (d.action || d.decision || '').toLowerCase();
+        const actionClass = action.includes('buy') || action.includes('achat') ? 'action-buy' :
+                            action.includes('sell') || action.includes('vente') ? 'action-sell' : 'action-hold';
+        const confidence = parseFloat(d.confidence || 0) * 100;
+        return `<div class="decision-item">
+            <div class="decision-header">
+                <span>
+                    <span class="decision-symbol">${d.symbol || d.pair || '—'}</span>
+                    <span class="decision-action ${actionClass}">${d.action || d.decision || '—'}</span>
+                </span>
+                <span>
+                    <span class="decision-strategy">${d.strategy || d.type || '—'}</span>
+                    <span class="decision-time"> ${fmtTime(d.timestamp || d.time)}</span>
+                </span>
+            </div>
+            <div class="confidence-bar"><div class="confidence-fill" style="width:${Math.min(confidence, 100)}%"></div></div>
+            ${d.reasoning || d.reason ? `<div class="decision-reasoning">${d.reasoning || d.reason}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function updateStrategies(data) {
+    if (!data) return;
+    const strategies = data.strategies || {};
+    const grid = document.getElementById('strategies-grid');
+    const keys = Object.keys(strategies);
+    if (keys.length === 0) {
+        grid.innerHTML = '<div class="empty-state">Aucune donnée de stratégie disponible</div>';
+        return;
+    }
+    grid.innerHTML = keys.map(name => {
+        const s = strategies[name];
+        const pnl = parseFloat(s.pnl || s.total_pnl || 0);
+        return `<div class="strategy-card">
+            <div class="strategy-name">${name}</div>
+            <div class="strategy-stat"><span>Taux de réussite</span><span>${(parseFloat(s.win_rate || s.winRate || 0) * 100).toFixed(1)}%</span></div>
+            <div class="strategy-stat"><span>P&L total</span><span class="${classForPnl(pnl)}">${(pnl >= 0 ? '+' : '') + fmtMoney(pnl)}</span></div>
+            <div class="strategy-stat"><span>Trades</span><span>${s.trade_count || s.trades || s.total_trades || 0}</span></div>
+        </div>`;
+    }).join('');
+}
+
+function updateLearning(data) {
+    if (!data) return;
+    const progress = parseFloat(data.progress_pct || 0);
+    const fill = document.getElementById('progress-fill');
+    fill.style.width = Math.min(progress, 100) + '%';
+    document.getElementById('progress-pct').textContent = Math.min(progress, 100).toFixed(1) + '%';
+    if (progress >= 100) {
+        fill.style.background = 'linear-gradient(90deg, #166534, #22c55e)';
+    }
+    document.getElementById('trades-done').textContent = data.trades_done || 0;
+    document.getElementById('trades-required').textContent = data.trades_required || 100;
+    document.getElementById('graduation-threshold').textContent = data.graduation_threshold || 100;
+}
+
+function updateMarket(data) {
+    if (!data) return;
+    const grid = document.getElementById('market-grid');
+    if (Object.keys(data).length === 0) {
+        grid.innerHTML = '<div class="empty-state">Aucune donnée de marché disponible</div>';
+        return;
+    }
+
+    // Support both {exchange: {symbol: price}} and {exchange: [{...}]} formats
+    grid.innerHTML = Object.entries(data).map(([exchange, info]) => {
+        let rows = '';
+        if (Array.isArray(info)) {
+            rows = info.slice(0, 8).map(item => {
+                const change = parseFloat(item.change_24h || item.change || 0);
+                const changeClass = classForPnl(change);
+                return `<div class="market-row">
+                    <span class="market-symbol">${item.symbol || item.pair || '—'}</span>
+                    <span class="market-price">${fmtPrice(item.price || item.last || 0)}</span>
+                    <span class="market-change ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>
+                </div>`;
+            }).join('');
+        } else if (typeof info === 'object') {
+            const entries = Object.entries(info);
+            rows = entries.slice(0, 8).map(([sym, priceData]) => {
+                const price = typeof priceData === 'number' ? priceData : (priceData.price || priceData.last || 0);
+                const change = typeof priceData === 'object' ? (parseFloat(priceData.change_24h || priceData.change || 0)) : 0;
+                const changeClass = classForPnl(change);
+                return `<div class="market-row">
+                    <span class="market-symbol">${sym}</span>
+                    <span class="market-price">${fmtPrice(price)}</span>
+                    <span class="market-change ${changeClass}">${change >= 0 ? '+' : ''}${change.toFixed(2)}%</span>
+                </div>`;
+            }).join('');
+        } else {
+            rows = `<div class="market-row"><span class="market-symbol">Données non disponibles</span></div>`;
+        }
+        return `<div class="exchange-card"><div class="exchange-name">${exchange}</div>${rows}</div>`;
+    }).join('');
+}
+
+// ─── PnL Chart ────────────────────────────────────────────────────────────
+function drawPnlChart() {
+    const canvas = document.getElementById('pnl-chart');
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * (window.devicePixelRatio || 1);
+    canvas.height = rect.height * (window.devicePixelRatio || 1);
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+    const W = rect.width;
+    const H = rect.height;
+    const padding = { top: 10, right: 10, bottom: 20, left: 60 };
+
+    ctx.clearRect(0, 0, W, H);
+
+    if (pnlHistory.length < 2) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Données insuffisantes pour le graphique', W / 2, H / 2);
+        return;
+    }
+
+    const values = pnlHistory.map(h => h.value);
+    const minV = Math.min(...values);
+    const maxV = Math.max(...values);
+    const rangeV = maxV - minV || 1;
+
+    const chartW = W - padding.left - padding.right;
+    const chartH = H - padding.top - padding.bottom;
+
+    // Zero line
+    const zeroY = padding.top + chartH - ((0 - minV) / rangeV) * chartH;
+
+    // Grid lines
+    ctx.strokeStyle = '#1a1f2e';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (chartH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(W - padding.right, y);
+        ctx.stroke();
+
+        const val = maxV - (rangeV / 4) * i;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(val.toFixed(2), padding.left - 8, y + 3);
+    }
+
+    // Zero line highlight
+    if (minV < 0 && maxV > 0) {
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, zeroY);
+        ctx.lineTo(W - padding.right, zeroY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    // Area fill
+    const gradient = ctx.createLinearGradient(0, padding.top, 0, H - padding.bottom);
+    if (values[values.length - 1] >= 0) {
+        gradient.addColorStop(0, 'rgba(34, 197, 94, 0.3)');
+        gradient.addColorStop(1, 'rgba(34, 197, 94, 0.02)');
+    } else {
+        gradient.addColorStop(0, 'rgba(239, 68, 68, 0.02)');
+        gradient.addColorStop(1, 'rgba(239, 68, 68, 0.3)');
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(padding.left, H - padding.bottom);
+    values.forEach((v, i) => {
+        const x = padding.left + (i / (values.length - 1)) * chartW;
+        const y = padding.top + chartH - ((v - minV) / rangeV) * chartH;
+        ctx.lineTo(x, y);
+    });
+    ctx.lineTo(padding.left + chartW, H - padding.bottom);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    values.forEach((v, i) => {
+        const x = padding.left + (i / (values.length - 1)) * chartW;
+        const y = padding.top + chartH - ((v - minV) / rangeV) * chartH;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = values[values.length - 1] >= 0 ? '#22c55e' : '#ef4444';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Current point
+    const lastX = padding.left + chartW;
+    const lastY = padding.top + chartH - ((values[values.length - 1] - minV) / rangeV) * chartH;
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+    ctx.fillStyle = values[values.length - 1] >= 0 ? '#22c55e' : '#ef4444';
+    ctx.fill();
+}
+
+// ─── Kill switch ──────────────────────────────────────────────────────────
+function handleKill() {
+    const btn = document.getElementById('kill-btn');
+    const status = document.getElementById('kill-status');
+
+    if (!killConfirmPending) {
+        killConfirmPending = true;
+        btn.textContent = 'CONFIRMER ?';
+        btn.classList.add('confirm');
+        status.textContent = '⚠️ Cliquez une deuxième fois pour confirmer l\'arrêt d\'urgence';
+        status.style.color = '#eab308';
+        killConfirmTimer = setTimeout(() => {
+            killConfirmPending = false;
+            btn.textContent = 'ARRÊT D\'URGENCE';
+            btn.classList.remove('confirm');
+            status.textContent = '';
+        }, 5000);
+    } else {
+        clearTimeout(killConfirmTimer);
+        killConfirmPending = false;
+        btn.disabled = true;
+        btn.textContent = 'ARRÊT EN COURS...';
+        btn.classList.remove('confirm');
+        status.textContent = 'Envoi de la commande d\'arrêt...';
+        status.style.color = '#ef4444';
+
+        fetch('/api/kill', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                status.textContent = '✅ Arrêt d\'urgence activé — ' + (data.message || 'Agent arrêté');
+                status.style.color = '#ef4444';
+                btn.textContent = 'ARRÊTÉ';
+            })
+            .catch(() => {
+                status.textContent = '❌ Erreur lors de l\'envoi de la commande';
+                status.style.color = '#ef4444';
+                btn.disabled = false;
+                btn.textContent = 'ARRÊT D\'URGENCE';
+            });
+    }
+}
+
+// ─── Model Hint ────────────────────────────────────────────────────────
+const MODEL_HINTS = {
+    'mistral-small-latest': '⚡ Rapide et économique. Idéal pour les cycles courts et les décisions simples. Coût très faible.',
+    'mistral-medium-latest': '⚖️ Bon équilibre qualité/prix. Recommandé pour le trading autonome — raisonnement suffisant pour la plupart des situations.',
+    'mistral-large-latest': '🧠 Maximum de capacité. Pour les analyses complexes et les stratégies avancées. Coût plus élevé.',
+    'magistral-small-latest': '🔬 Raisonnement spécialisé (chain-of-thought). Lent mais plus rigoureux. Idéal pour les décisions critiques.',
+    'magistral-medium-latest': '🔬🔬 Raisonnement approfondi. Le plus lent mais le plus rigoureux. Pour les analyses de marché complexes.',
+};
+
+function updateModelHint() {
+    const select = document.getElementById('model-select');
+    const hint = document.getElementById('model-hint');
+    if (!select || !hint) return;
+    const model = select.value;
+    if (model && MODEL_HINTS[model]) {
+        hint.textContent = MODEL_HINTS[model];
+        hint.style.display = 'block';
+    } else {
+        hint.style.display = 'none';
+    }
+}
+
+// ─── Refresh Display ──────────────────────────────────────────────────
+function handleRefreshDisplay() {
+    // Clear Cache API only (SW caches, not cookies/localStorage)
+    if ('caches' in window) {
+        caches.keys().then(names => {
+            names.forEach(name => caches.delete(name));
+        });
+    }
+    // Unregister service workers
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(regs => {
+            regs.forEach(r => r.unregister());
+        });
+    }
+    // Hard reload with cache-buster (preserves session cookie)
+    window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();
+}
+
+// ─── WebSocket ──────────────────────────────────────────────────────────────
+function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+    ws.onopen = () => {
+        wsRetries = 0;
+        const bar = document.getElementById('connection-bar');
+        bar.className = 'connection-bar connected';
+        bar.textContent = '🟢 Connecté — Mises à jour en temps réel';
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.status) updateStatus(data.status);
+            if (data.portfolio_summary) {
+                const ps = data.portfolio_summary;
+                // Quick updates from WS
+                document.getElementById('total-balance').textContent = fmtMoney(ps.balance);
+                const pnlEl = document.getElementById('pnl-value');
+                pnlEl.textContent = (ps.pnl >= 0 ? '+' : '') + fmtMoney(ps.pnl);
+                pnlEl.className = 'stat-value ' + classForPnl(ps.pnl);
+                const pnlPctEl = document.getElementById('pnl-pct');
+                pnlPctEl.textContent = (ps.pnl_pct >= 0 ? '+' : '') + fmtPct(ps.pnl_pct);
+                pnlPctEl.className = 'stat-value ' + classForPnl(ps.pnl_pct);
+                document.getElementById('position-count').textContent = ps.position_count || 0;
+
+                pnlHistory.push({ time: new Date(), value: ps.pnl });
+                if (pnlHistory.length > 200) pnlHistory.shift();
+                drawPnlChart();
+            }
+        } catch (e) { console.error('WS parse error:', e); }
+    };
+
+    ws.onclose = () => {
+        const bar = document.getElementById('connection-bar');
+        bar.className = 'connection-bar disconnected';
+        bar.textContent = '🔴 Déconnecté — Reconnexion...';
+        wsRetries++;
+        setTimeout(connectWS, Math.min(5000 * wsRetries, 30000));
+    };
+
+    ws.onerror = () => { ws.close(); };
+}
+
+// ─── Brain Config ────────────────────────────────────────────────────────
+async function updateBrainConfig() {
+    try {
+        const r = await fetch('/api/brain/config');
+        const data = await r.json();
+        if (!data) return;
+
+        // Current model
+        const modelEl = document.getElementById('brain-model');
+        if (modelEl) {
+            const model = data.llm_model || '—';
+            modelEl.textContent = model;
+            // Highlight model name nicely
+            const parts = model.split('/');
+            if (parts.length > 1) {
+                modelEl.innerHTML = `<span style="color:var(--text-secondary);font-weight:400;">${parts[0]}/</span><span>${parts[1]}</span>`;
+            }
+        }
+
+        // Status
+        const statusEl = document.getElementById('brain-status');
+        if (statusEl) {
+            if (data.connected === true) {
+                statusEl.innerHTML = '<span style="color:var(--green);">● Connecté</span>';
+            } else if (data.connected === false) {
+                statusEl.innerHTML = '<span style="color:var(--red);">● Déconnecté</span>';
+            } else {
+                statusEl.innerHTML = '<span style="color:var(--text-secondary);">● Inconnu</span>';
+            }
+        }
+
+        // Tokens
+        const tokensEl = document.getElementById('brain-tokens');
+        if (tokensEl) {
+            const t = data.total_tokens_used;
+            tokensEl.textContent = (t !== null && t !== undefined) ? t.toLocaleString('fr-FR') : '—';
+        }
+
+        // Temperature
+        const tempEl = document.getElementById('brain-temperature');
+        if (tempEl) tempEl.textContent = data.llm_temperature ?? '—';
+
+        // Max tokens
+        const maxTokEl = document.getElementById('brain-max-tokens');
+        if (maxTokEl) maxTokEl.textContent = data.llm_max_tokens ?? '—';
+
+        // Populate dropdown
+        const select = document.getElementById('model-select');
+        if (select && data.available_models) {
+            const currentVal = select.value;
+            select.innerHTML = '';
+            const modelIds = data.available_models.map(m => typeof m === 'string' ? m : m.id);
+            data.available_models.forEach(m => {
+                const opt = document.createElement('option');
+                // Support both string and object format
+                const id = typeof m === 'string' ? m : m.id;
+                const name = typeof m === 'string' ? m : (m.name || m.id);
+                opt.value = id;
+                opt.textContent = name;
+                if (id === data.llm_model) opt.selected = true;
+                select.appendChild(opt);
+            });
+            // Restore selection if still valid
+            if (currentVal && modelIds.includes(currentVal)) {
+                select.value = currentVal;
+            }
+            // Show hint for current model
+            updateModelHint();
+        }
+    } catch (e) {
+        console.error('Brain config fetch error:', e);
+    }
+}
+
+async function saveModelConfig() {
+    const select = document.getElementById('model-select');
+    const btn = document.getElementById('model-save-btn');
+    const status = document.getElementById('model-save-status');
+    if (!select) return;
+
+    const model = select.value;
+    btn.disabled = true;
+    btn.textContent = 'Enregistrement...';
+    status.textContent = '';
+    status.className = 'model-save-status';
+
+    try {
+        const r = await fetch('/api/brain/config', {
+            method: 'PUT',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ llm_model: model }),
+        });
+        const data = await r.json();
+        if (r.ok) {
+            status.textContent = '✅ ' + (data.message || 'Config mise à jour');
+            status.className = 'model-save-status success';
+            // Refresh display
+            await updateBrainConfig();
+        } else {
+            status.textContent = '❌ ' + (data.error || 'Erreur');
+            status.className = 'model-save-status error';
+        }
+    } catch (e) {
+        status.textContent = '❌ Erreur réseau';
+        status.className = 'model-save-status error';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Appliquer';
+    // Clear status after 5s
+    setTimeout(() => { status.textContent = ''; }, 5000);
+}
+
+function updateBrainConfigDisplay(data) {
+    if (!data) return;
+    // Current model
+    const modelEl = document.getElementById('brain-model');
+    if (modelEl) {
+        const model = data.llm_model || '—';
+        const parts = model.split('/');
+        if (parts.length > 1) {
+            modelEl.innerHTML = `<span style="color:var(--text-secondary);font-weight:400;">${parts[0]}/</span><span>${parts[1]}</span>`;
+        } else {
+            modelEl.textContent = model;
+        }
+    }
+    // Status
+    const statusEl = document.getElementById('brain-status');
+    if (statusEl) {
+        if (data.connected === true) {
+            statusEl.innerHTML = '<span style="color:var(--green);">● Connecté</span>';
+        } else if (data.connected === false) {
+            statusEl.innerHTML = '<span style="color:var(--red);">● Déconnecté</span>';
+        } else {
+            statusEl.innerHTML = '<span style="color:var(--text-secondary);">● Inconnu</span>';
+        }
+    }
+    // Tokens
+    const tokensEl = document.getElementById('brain-tokens');
+    if (tokensEl) {
+        const t = data.total_tokens_used;
+        tokensEl.textContent = (t !== null && t !== undefined) ? t.toLocaleString('fr-FR') : '—';
+    }
+    // Temperature
+    const tempEl = document.getElementById('brain-temperature');
+    if (tempEl) tempEl.textContent = data.llm_temperature ?? '—';
+    // Max tokens
+    const maxTokEl = document.getElementById('brain-max-tokens');
+    if (maxTokEl) maxTokEl.textContent = data.llm_max_tokens ?? '—';
+    // Dropdown
+    const select = document.getElementById('model-select');
+    if (select && data.available_models) {
+        select.innerHTML = '';
+        data.available_models.forEach(m => {
+            const opt = document.createElement('option');
+            const id = typeof m === 'string' ? m : m.id;
+            const name = typeof m === 'string' ? m : (m.name || m.id);
+            opt.value = id;
+            opt.textContent = name;
+            if (id === data.llm_model) opt.selected = true;
+            select.appendChild(opt);
+        });
+    }
+}
+
+// ─── Full data refresh ────────────────────────────────────────────────────
+async function refreshAll() {
+    const [status, portfolio, decisions, strategies, learning, market, brainConfig] = await Promise.all([
+        fetchAPI('/api/status'),
+        fetchAPI('/api/portfolio'),
+        fetchAPI('/api/decisions'),
+        fetchAPI('/api/strategies'),
+        fetchAPI('/api/learning'),
+        fetchAPI('/api/market'),
+        fetchAPI('/api/brain/config'),
+    ]);
+    updateStatus(status);
+    updatePortfolio(portfolio);
+    updatePositions(portfolio);
+    updateDecisions(decisions);
+    updateStrategies(strategies);
+    updateLearning(learning);
+    updateMarket(market);
+    if (brainConfig) updateBrainConfigDisplay(brainConfig);
+}
+
+// ─── Real-time Log Panel ─────────────────────────────────────────────────
+const LOG_MAX_LINES = 500;
+let logEventSource = null;
+let logLines = [];
+
+function colorizeLogLine(line) {
+    // Escape HTML
+    let safe = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Color by log level
+    if (/\bERROR\b/i.test(safe) || /\bCRITICAL\b/i.test(safe)) {
+        return `<span style="color:var(--red);">${safe}</span>`;
+    }
+    if (/\bWARNING\b/i.test(safe) || /\bWARN\b/i.test(safe)) {
+        return `<span style="color:var(--yellow);">${safe}</span>`;
+    }
+    if (/\bINFO\b/i.test(safe)) {
+        return `<span style="color:var(--text-secondary);">${safe}</span>`;
+    }
+    if (/\bDEBUG\b/i.test(safe)) {
+        return `<span style="color:var(--text-muted);">${safe}</span>`;
+    }
+    return safe;
+}
+
+function appendLogLine(line) {
+    if (!line || !line.trim()) return;
+    logLines.push(line);
+    if (logLines.length > LOG_MAX_LINES) logLines.shift();
+    const panel = document.getElementById('log-panel');
+    if (!panel) return;
+    const div = document.createElement('div');
+    div.innerHTML = colorizeLogLine(line);
+    panel.appendChild(div);
+    // Trim excess DOM nodes
+    while (panel.childElementCount > LOG_MAX_LINES) {
+        panel.removeChild(panel.firstChild);
+    }
+    if (document.getElementById('log-autoscroll')?.checked) {
+        panel.scrollTop = panel.scrollHeight;
+    }
+}
+
+function clearLog() {
+    const panel = document.getElementById('log-panel');
+    if (panel) panel.innerHTML = '';
+    logLines = [];
+}
+
+function connectLogStream() {
+    // Load initial recent logs
+    fetch('/api/logs?limit=50')
+        .then(r => r.json())
+        .then(data => {
+            if (data.lines && data.lines.length > 0) {
+                const panel = document.getElementById('log-panel');
+                if (panel) panel.innerHTML = '';
+                logLines = [];
+                data.lines.forEach(line => appendLogLine(line));
+            }
+        })
+        .catch(() => {});
+
+    // Connect to SSE stream for real-time updates
+    if (logEventSource) {
+        logEventSource.close();
+    }
+    try {
+        logEventSource = new EventSource('/api/logs/stream');
+        logEventSource.onmessage = (event) => {
+            if (event.data) {
+                appendLogLine(event.data);
+            }
+        };
+        logEventSource.onerror = () => {
+            // Reconnect after delay
+            logEventSource.close();
+            setTimeout(connectLogStream, 5000);
+        };
+    } catch (e) {
+        console.error('SSE connection failed:', e);
+    }
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+refreshAll();
+connectWS();
+connectLogStream();
+setInterval(refreshAll, 5000);
+
+// Redraw chart on resize
+window.addEventListener('resize', drawPnlChart);
+
+// ─── PWA Service Worker (force update on page load) ──────────────────────
+if ('serviceWorker' in navigator) {
+    // Unregister old cache-first SWs
+    navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => {
+            if (!r.active || !r.active.scriptURL.includes('sw.js')) {
+                r.unregister();
+            }
+        });
+    });
+    // Clear old caches
+    caches.keys().then(keys => keys.filter(k => k !== 'picsou-v2').forEach(k => caches.delete(k)));
+    // Register current SW
+    navigator.serviceWorker.register('/sw.js?v=2').then(reg => {
+        console.log('SW registered v2');
+        // Force update check
+        reg.update();
+    }).catch(err => console.warn('SW registration failed:', err));
+}
+
+// ─── PWA Install Prompt ─────────────────────────────────────────────────
+let deferredPrompt = null;
+let installBanner = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    showInstallBanner();
+});
+
+function showInstallBanner() {
+    if (document.getElementById('install-banner')) return;
+    installBanner = document.createElement('div');
+    installBanner.id = 'install-banner';
+    installBanner.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);' +
+        'background:linear-gradient(135deg,#1a1f2e,#232940);border:1px solid #22c55e;' +
+        'border-radius:16px;padding:16px 24px;display:flex;align-items:center;gap:16px;' +
+        'z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.5);max-width:90vw;';
+    installBanner.innerHTML = `
+        <span style="font-size:24px;">🪙</span>
+        <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;color:#e2e8f0;">Installer Picsou</div>
+            <div style="font-size:12px;color:#94a3b8;">Accès rapide depuis l'écran d'accueil</div>
+        </div>
+        <button onclick="installPWA()" style="background:#22c55e;color:#000;border:none;border-radius:8px;padding:10px 20px;font-weight:700;font-size:13px;cursor:pointer;">Installer</button>
+        <button onclick="dismissInstall()" style="background:transparent;color:#64748b;border:none;font-size:18px;cursor:pointer;padding:4px;">✕</button>
+    `;
+    document.body.appendChild(installBanner);
+}
+
+async function installPWA() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log('Install outcome:', outcome);
+    deferredPrompt = null;
+    dismissInstall();
+}
+
+function dismissInstall() {
+    if (installBanner) {
+        installBanner.remove();
+        installBanner = null;
+    }
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1 @@
+# Picsou v4 — Agent autonome de trading crypto
