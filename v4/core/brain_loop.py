@@ -16,6 +16,8 @@ from .observer import Observer
 from .brain import Brain, TOOL_DEFINITIONS
 from .strategy_loader import StrategyLoader
 from .backtest import Backtester
+from .executor import Executor
+from .safety import Safety
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ class BrainLoop:
         self.observer = Observer(config, exchanges)
         self.strategy_loader = StrategyLoader(config.strategies_path)
         self.backtester = Backtester()
+        self.safety = Safety(config)
+        self.executor = Executor(self.safety, portfolio, memory)
         self.cycle_count = 0
 
     def should_run(self, heartbeat_cycle: int) -> bool:
@@ -112,6 +116,26 @@ class BrainLoop:
                 self.memory.add_observation(category="brain", content=str(obs))
             for lesson in lessons if isinstance(lessons, list) else []:
                 self.memory.add_lesson(lesson=str(lesson))
+
+        elif action in ("buy", "sell"):
+            # LLM wants to trade — execute via the Executor
+            trade_decision = {
+                "action": action,
+                "symbol": decision.get("symbol", "BTC"),
+                "size_pct": decision.get("size_pct", 0.05),
+                "confidence": decision.get("confidence", 0.5),
+                "strategy": decision.get("strategy", "brain"),
+                "reasoning": decision.get("reasoning", ""),
+            }
+            executed = self.executor.execute([trade_decision], self.exchanges)
+            if executed:
+                logger.info("Brain trade executed: %s %s — %s",
+                            action.upper(), trade_decision["symbol"], executed)
+                results["trades"] = executed
+            else:
+                logger.info("Brain trade not executed (safety or no match): %s %s",
+                            action, trade_decision["symbol"])
+                results["trades"] = []
 
         elif action == "create_strategy":
             # LLM wants to create a new strategy

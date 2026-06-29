@@ -182,5 +182,22 @@ class Heartbeat:
                             strategy=pos.strategy, confidence=0, reasoning="Stop-loss at -10%",
                         )
 
-                # Take-profit at +15% (optional, can be strategy-driven)
-                # For now, let strategies handle take-profit
+                # Take-profit at +10%
+                elif unrealized_pnl_pct >= 0.10:
+                    logger.info("TAKE-PROFIT: %s at +%.2f%% (entry=%.2f, current=%.2f)",
+                                pos.symbol, unrealized_pnl_pct * 100, pos.entry_price, current_price)
+                    trade = self.portfolio.close_position(pos.id, current_price)
+                    if trade:
+                        self.memory.add_observation(
+                            category="take_profit",
+                            content=f"Take-profit triggered for {pos.symbol} at +{unrealized_pnl_pct*100:.1f}%",
+                            relevance="high"
+                        )
+                        self.memory.add_lesson(
+                            lesson=f"Take-profit à +{unrealized_pnl_pct*100:.1f}% sur {pos.symbol} — bien joué de prendre ses gains",
+                        )
+                        self.memory.log_trade(
+                            exchange=pos.exchange, symbol=pos.symbol, side="sell",
+                            amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
+                            strategy=pos.strategy, confidence=0.8, reasoning=f"Take-profit at +{unrealized_pnl_pct*100:.1f}%",
+                        )
