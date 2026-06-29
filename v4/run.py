@@ -4,16 +4,19 @@ Two loops running in sync:
   - Heartbeat (fast, every 5 min): runs active strategies, no LLM
   - Brain (slow, every ~1h): LLM analyzes, creates/modifies strategies
 
-Also runs a lightweight HTTP health endpoint on port 3035.
+Also runs a lightweight HTTP health endpoint on port 3035,
+and optionally a Telegram bot for direct chat with Picsou.
 
 Usage:
-  python run.py                    # Run both loops forever
+  python run.py                    # Run both loops + Telegram bot
   python run.py --heartbeat-only   # Run only heartbeat
   python run.py --brain-only       # Run one brain cycle and exit
+  python run.py --no-telegram      # Run without Telegram bot
   python run.py --test             # Quick test of all components
 """
 
 import argparse
+import asyncio
 import logging
 import os
 import signal
@@ -105,7 +108,46 @@ def init_exchanges(config: PicsouConfig):
     return exchanges
 
 
-def run_brain_loop(config: PicsouConfig):
+def start_telegram_bot(config: PicsouConfig, memory: Memory,
+                       portfolio: Portfolio, exchanges: dict):
+    """Start the Telegram bot in a background thread with its own event loop."""
+    if not config.telegram.token:
+        logger.info("No Telegram token configured — skipping Telegram bot")
+        return
+
+    from core.telegram_bot import PicsouTelegramBot
+
+    bot = PicsouTelegramBot(config, memory, portfolio, exchanges)
+
+    def _run_in_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        app = bot.create_application()
+        try:
+            loop.run_until_complete(app.initialize())
+            loop.run_until_complete(app.start())
+            loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
+            logger.info("Telegram bot started — polling for messages")
+            loop.run_forever()
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            logger.error("Telegram bot error: %s", e, exc_info=True)
+        finally:
+            try:
+                loop.run_until_complete(app.updater.stop())
+                loop.run_until_complete(app.stop())
+                loop.run_until_complete(app.shutdown())
+            except Exception:
+                pass
+            loop.close()
+
+    t = Thread(target=_run_in_thread, daemon=True, name="telegram-bot")
+    t.start()
+    logger.info("Telegram bot thread started")
+
+
+def run_brain_loop(config: PicsouConfig, start_telegram: bool = True):
     """Run combined heartbeat + brain loop forever."""
     global AGENT_STATE
 
@@ -114,6 +156,10 @@ def run_brain_loop(config: PicsouConfig):
     portfolio = Portfolio(config.starting_capital, memory=memory)
     heartbeat = Heartbeat(config, portfolio, memory, exchanges)
     brain_loop = BrainLoop(config, portfolio, memory, exchanges)
+
+    # Start Telegram bot if configured
+    if start_telegram and config.telegram.token:
+        start_telegram_bot(config, memory, portfolio, exchanges)
 
     heartbeat_cycle = 0
     interval = config.safety.cooldown_seconds
@@ -169,7 +215,7 @@ def run_test(config: PicsouConfig):
     print("=" * 50)
 
     # 1. Memory
-    print("\n[1/6] Testing Memory (SQLite)...")
+    print("\n[1/7] Testing Memory (SQLite)...")
     memory = Memory(config.data_path / "picsou.db")
     memory.add_observation("test", "Memory working")
     memory.add_lesson("Test lesson: always check your data")
@@ -177,20 +223,20 @@ def run_test(config: PicsouConfig):
     print(f"  ✓ Memory OK — {len(ctx)} context keys")
 
     # 2. Portfolio
-    print("\n[2/6] Testing Portfolio...")
+    print("\n[2/7] Testing Portfolio...")
     portfolio = Portfolio(config.starting_capital)
     state = portfolio.get_state()
     print(f"  ✓ Portfolio OK — balance=${state['balance']:,.2f}")
 
     # 3. Safety
-    print("\n[3/6] Testing Safety...")
+    print("\n[3/7] Testing Safety...")
     from core.safety import Safety
     safety = Safety(config)
     check = safety.check_trade("buy", 100, 10000, 0, 10000, 0.0)
     print(f"  ✓ Safety OK — trade allowed: {check.allowed}")
 
     # 4. Exchanges
-    print("\n[4/6] Testing Exchange (OKX)...")
+    print("\n[4/7] Testing Exchange (OKX)...")
     exchanges = init_exchanges(config)
     if "okx" in exchanges:
         ticker = exchanges["okx"].get_ticker("BTC-USDT")
@@ -200,15 +246,23 @@ def run_test(config: PicsouConfig):
             print(f"  ⚠ OKX returned no data (may be rate limited)")
 
     # 5. Strategy Loader
-    print("\n[5/6] Testing Strategy Loader...")
+    print("\n[5/7] Testing Strategy Loader...")
     loader = StrategyLoader(config.strategies_path)
     strategies = loader.discover()
     print(f"  ✓ Strategy Loader OK — {len(strategies)} strategies found: {strategies}")
 
     # 6. Brain
-    print("\n[6/6] Testing Brain (LLM connection)...")
+    print("\n[6/7] Testing Brain (LLM connection)...")
     brain_loop = BrainLoop(config, portfolio, memory, exchanges)
     print(f"  ✓ Brain OK — model={config.llm.model}")
+
+    # 7. Telegram Bot
+    print("\n[7/7] Testing Telegram Bot config...")
+    if config.telegram.token:
+        print(f"  ✓ Telegram token configured: {config.telegram.token[:10]}...")
+        print(f"  ✓ Authorized users: {config.telegram.authorized_user_ids}")
+    else:
+        print(f"  ⚠ No Telegram token configured (set PICSOU_TELEGRAM_TOKEN env var)")
 
     print("\n" + "=" * 50)
     print("All components tested. Ready to run.")
@@ -219,6 +273,7 @@ def main():
     parser = argparse.ArgumentParser(description="Picsou v4 — Autonomous Crypto Agent")
     parser.add_argument("--heartbeat-only", action="store_true", help="Run only heartbeat (no LLM)")
     parser.add_argument("--brain-only", action="store_true", help="Run one brain cycle and exit")
+    parser.add_argument("--no-telegram", action="store_true", help="Disable Telegram bot")
     parser.add_argument("--test", action="store_true", help="Test all components")
     parser.add_argument("--port", type=int, default=3035, help="Health endpoint port")
     parser.add_argument("--config", type=str, help="Path to config file")
@@ -242,6 +297,11 @@ def main():
         portfolio = Portfolio(config.starting_capital, memory=memory)
         heartbeat = Heartbeat(config, portfolio, memory, exchanges)
         AGENT_STATE["status"] = "heartbeat_only"
+
+        # Start Telegram bot even in heartbeat-only mode
+        if not args.no_telegram and config.telegram.token:
+            start_telegram_bot(config, memory, portfolio, exchanges)
+
         while True:
             try:
                 heartbeat.run_once()
@@ -259,7 +319,7 @@ def main():
         # Start health server in background
         t = Thread(target=start_health_server, args=(args.port,), daemon=True)
         t.start()
-        run_brain_loop(config)
+        run_brain_loop(config, start_telegram=not args.no_telegram)
 
 
 if __name__ == "__main__":

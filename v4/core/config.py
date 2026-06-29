@@ -17,7 +17,6 @@ class SafetyConfig:
     cooldown_seconds: int = 300          # Seconds between cycles (heartbeat)
     brain_interval_cycles: int = 3       # Run LLM brain every N cycles (~15min)
 
-
 @dataclass
 class ExchangeConfig:
     """Configuration for a single exchange."""
@@ -38,6 +37,13 @@ class LLMConfig:
 
 
 @dataclass
+class TelegramConfig:
+    """Telegram bot configuration."""
+    token: str = ""
+    authorized_user_ids: list = field(default_factory=lambda: [])
+
+
+@dataclass
 class PicsouConfig:
     """Main configuration — everything the agent can read and modify."""
     phase: str = "learning"  # "learning" (paper) or "live"
@@ -47,6 +53,7 @@ class PicsouConfig:
 
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
     exchanges: Dict[str, ExchangeConfig] = field(default_factory=dict)
 
     # Paths
@@ -84,6 +91,33 @@ class PicsouConfig:
                         if key in ("PICSOU_LLM_KEY",) and val:
                             self.llm.api_key = val
                             break
+
+        # Load Telegram config from env or .env
+        if not self.telegram.token:
+            self.telegram.token = os.environ.get("PICSOU_TELEGRAM_TOKEN", "")
+        if not self.telegram.authorized_user_ids:
+            env_ids = os.environ.get("PICSOU_TELEGRAM_USERS", "")
+            if env_ids:
+                self.telegram.authorized_user_ids = [
+                    int(uid.strip()) for uid in env_ids.split(",") if uid.strip()
+                ]
+        if not self.telegram.token:
+            env_file = self.base_path.parent / ".env"
+            if env_file.exists():
+                for line in env_file.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("#") or not line:
+                        continue
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        key = key.strip()
+                        val = val.strip().strip('"').strip("'")
+                        if key == "PICSOU_TELEGRAM_TOKEN" and val:
+                            self.telegram.token = val
+                        elif key == "PICSOU_TELEGRAM_USERS" and val:
+                            self.telegram.authorized_user_ids = [
+                                int(uid.strip()) for uid in val.split(",") if uid.strip()
+                            ]
 
 
 def get_config() -> PicsouConfig:
