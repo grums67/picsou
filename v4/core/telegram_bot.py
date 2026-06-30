@@ -532,11 +532,16 @@ class PicsouTelegramBot:
                 return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
 
             base = _base(symbole.upper())
-            matching = [p for p in self.portfolio.get_open_positions()
+            all_positions = self.portfolio.get_open_positions()
+            logger.info("Vendre: symbole=%s base=%s all_positions=%d", symbole, base, len(all_positions))
+            for p in all_positions:
+                logger.info("  position: id=%d symbol=%s side=%s base=%s", p.id, p.symbol, p.side, _base(p.symbol))
+
+            matching = [p for p in all_positions
                         if _base(p.symbol) == base and p.side == "long"]
 
             if not matching:
-                return {"error": f"Aucune position ouverte sur {symbole}"}
+                return {"error": f"Aucune position ouverte sur {symbole} (positions connues: {len(all_positions)})"}
 
             if nombre == "tout":
                 to_close = matching
