@@ -85,6 +85,9 @@ class Heartbeat:
         # 6. Check for positions that need closing (stop-loss, take-profit)
         self._check_open_positions(market_data)
 
+        # 7. Enforce max positions per asset (2 per symbol)
+        self._enforce_max_per_asset(market_data)
+
         summary = {
             "cycle": self.cycle_count,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -200,4 +203,52 @@ class Heartbeat:
                             exchange=pos.exchange, symbol=pos.symbol, side="sell",
                             amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
                             strategy=pos.strategy, confidence=0.8, reasoning=f"Take-profit at +{unrealized_pnl_pct*100:.1f}%",
+                        )
+    def _enforce_max_per_asset(self, market_data: Dict):
+        """Enforce max 2 positions per asset. Close excess positions (oldest first)."""
+        import re
+        MAX_PER_ASSET = 2
+
+        # Group positions by base symbol
+        def _base(sym):
+            return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
+
+        positions = list(self.portfolio.positions.values())
+        by_symbol = {}
+        for pos in positions:
+            base = _base(pos.symbol)
+            by_symbol.setdefault(base, []).append(pos)
+
+        for symbol, pos_list in by_symbol.items():
+            if len(pos_list) > MAX_PER_ASSET:
+                # Sort by entry price descending (close worst entries first)
+                excess = sorted(pos_list, key=lambda p: p.entry_price, reverse=True)
+                to_close = excess[MAX_PER_ASSET:]  # Keep the 2 best entries
+
+                for pos in to_close:
+                    # Find current price
+                    current_price = None
+                    for key, md in market_data.items():
+                        if md.get("formatted_symbol") == pos.symbol or md.get("symbol", "").upper() in pos.symbol.upper():
+                            current_price = md.get("ticker", {}).get("last")
+                            break
+
+                    if current_price is None:
+                        logger.warning("MAX-PER-ASSET: Cannot find price for %s, skipping close", pos.symbol)
+                        continue
+
+                    logger.warning("MAX-PER-ASSET: Closing excess position #%d %s @ %.2f (current=%.2f)",
+                                  pos.id, pos.symbol, pos.entry_price, current_price)
+                    trade = self.portfolio.close_position(pos.id, current_price)
+                    if trade:
+                        self.memory.add_observation(
+                            category="safety",
+                            content=f"Position {pos.symbol} #{pos.id} fermée: max {MAX_PER_ASSET} par actif dépassé ({len(pos_list)} positions)",
+                            relevance="high"
+                        )
+                        self.memory.log_trade(
+                            exchange=pos.exchange, symbol=pos.symbol, side="sell",
+                            amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
+                            strategy=pos.strategy, confidence=0,
+                            reasoning=f"Safety: max {MAX_PER_ASSET} positions par actif dépassé",
                         )
