@@ -315,6 +315,8 @@ class PicsouTelegramBot:
                 await typing_task
             except Exception:
                 pass
+            if not response or not response.strip():
+                response = "🤔 Je n'ai rien à dire pour le moment. Reformule ta question ?"
             await update.message.reply_text(response)
         except Exception as e:
             typing_stop.set()
@@ -354,6 +356,8 @@ class PicsouTelegramBot:
                           "ecrire_strategie", "tester_strategie", "lire_code", "modifier_code"
                       )]
 
+        tool_results = []
+
         for round_num in range(5):
             response = self.brain._call_llm(messages, tools=chat_tools)
             if response is None:
@@ -364,7 +368,19 @@ class PicsouTelegramBot:
 
             # If no tool calls, we have a text response
             if "tool_calls" not in message or not message["tool_calls"]:
-                content = message.get("content", "")
+                content = message.get("content", "") or ""
+                # Fallback: if LLM returned empty content but we had tool results, summarize them
+                if not content.strip() and tool_results:
+                    summary_parts = []
+                    for tr in tool_results:
+                        if isinstance(tr, dict):
+                            if tr.get("error"):
+                                summary_parts.append(f"❌ {tr['error']}")
+                            elif tr.get("message"):
+                                summary_parts.append(f"✅ {tr['message']}")
+                            elif tr.get("status") == "ok":
+                                summary_parts.append(f"✅ Action exécutée")
+                    content = "\n".join(summary_parts) if summary_parts else "✅ Action effectuée."
                 # Add to history
                 self._add_to_history(user_id, "assistant", content)
                 return self._format_response(content)
@@ -373,6 +389,7 @@ class PicsouTelegramBot:
             messages.append(message)
             for tool_call in message["tool_calls"]:
                 tool_result = self._execute_chat_tool(tool_call, user_id)
+                tool_results.append(tool_result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call["id"],
