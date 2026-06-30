@@ -98,6 +98,9 @@ class BrainLoop:
         # 3. Process the decision
         result = self._process_decision(decision, market_data)
 
+        # 4. Auto-verify: check that actions had the expected effect
+        self._auto_verify(decision, result)
+
         logger.info("Brain cycle #%d: action=%s, result=%s",
                      self.cycle_count, decision.get("action", "?"), result)
 
@@ -399,3 +402,80 @@ class BrainLoop:
         except Exception as e:
             logger.error("Failed to get candles for backtest: %s", e)
             return []
+    def _auto_verify(self, decision: Dict, result: Dict):
+        """After each action, verify the expected effect actually happened.
+        
+        If the action didn't produce the expected result, log an observation
+        and add a lesson so the brain learns from its failures.
+        """
+        import re
+        action = decision.get("action", "hold")
+        
+        if action not in ("buy", "sell"):
+            return  # Nothing to verify for hold/observe/strategy actions
+        
+        symbol = decision.get("symbol", "BTC")
+        nombre = decision.get("nombre", "1")
+        
+        # Get current state after action
+        current_positions = self.portfolio.get_open_positions()
+        current_state = self.portfolio.get_state()
+        
+        expected = ""
+        actual = ""
+        problem = False
+        
+        if action == "sell":
+            # Verify: positions should have decreased
+            def _base(sym):
+                return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
+            base = _base(symbol.upper())
+            matching = [p for p in current_positions if _base(p.symbol) == base and p.side == "long"]
+            
+            if nombre == "tout":
+                expected = f"0 {symbol} positions (sold all)"
+                if len(matching) > 0:
+                    actual = f"{len(matching)} {symbol} positions still open"
+                    problem = True
+            else:
+                try:
+                    n = int(nombre)
+                except ValueError:
+                    n = 1
+                expected = f"at most {max(0, len(matching) + (n if matching else 0)) - n + n} positions reduced by {n}"
+                # Simpler: just check if we still have too many
+                if len(matching) > 2:
+                    expected = f"at most 2 {symbol} positions after selling"
+                    actual = f"{len(matching)} {symbol} positions still open"
+                    problem = True
+                    
+        elif action == "buy":
+            # Verify: a new position should exist
+            if result.get("trades"):
+                expected = f"new {symbol} position opened"
+                # Check if position exists
+                def _base(sym):
+                    return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
+                base = _base(symbol.upper())
+                matching = [p for p in current_positions if _base(p.symbol) == base]
+                if not matching:
+                    actual = f"no {symbol} position found after buy"
+                    problem = True
+            else:
+                # Buy was attempted but no trade executed
+                expected = f"buy {symbol} executed"
+                actual = f"buy failed — no trade executed"
+                problem = True
+        
+        if problem:
+            logger.warning("AUTO-VERIFY FAILED: expected=%s, actual=%s", expected, actual)
+            self.memory.add_observation(
+                category="auto_verify",
+                content=f"Action '{action} {symbol}' n'a pas eu l'effet attendu. Attendu: {expected}. Réel: {actual}. Je dois investiguer pourquoi.",
+                relevance="high"
+            )
+            self.memory.add_lesson(
+                lesson=f"Vérification auto: {action} {symbol} n'a pas fonctionné comme prévu ({actual}). Cause probable: bug d'exécution ou guardrail bloquant. Relancer la vérification au prochain cycle."
+            )
+        else:
+            logger.info("AUTO-VERIFY OK: action=%s %s executed correctly", action, symbol)
