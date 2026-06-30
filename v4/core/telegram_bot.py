@@ -325,12 +325,12 @@ class PicsouTelegramBot:
 
         # Call LLM with tool support (up to 5 rounds of tool calling)
         from .brain import TOOL_DEFINITIONS
-        # Chat tools: full autonomy — vendre, acheter, strategie, observation, memoire
+        # Chat tools: full autonomy — all tools including code self-modification
         chat_tools = [t for t in TOOL_DEFINITIONS
                       if t["function"]["name"] in (
                           "voir_marche", "voir_portefeuille", "voir_memoire",
                           "ecrire_memoire", "ajuster_poids", "vendre", "acheter",
-                          "ecrire_strategie", "tester_strategie"
+                          "ecrire_strategie", "tester_strategie", "lire_code", "modifier_code"
                       )]
 
         for round_num in range(5):
@@ -695,6 +695,53 @@ class PicsouTelegramBot:
                 }
             except Exception as e:
                 return {"error": f"Erreur backtest: {e}"}
+
+        elif func_name == "lire_code":
+            fichier = args.get("fichier", "")
+            base_path = self.config.data_path.parent
+            filepath = (base_path / fichier).resolve()
+            if not str(filepath).startswith(str(base_path)):
+                return {"error": "Accès refusé: chemin hors du projet"}
+            if not filepath.exists():
+                return {"error": f"Fichier '{fichier}' non trouvé"}
+            try:
+                content = filepath.read_text(encoding='utf-8')
+                lines = content.split('\n')
+                return {
+                    "fichier": fichier,
+                    "lignes": len(lines),
+                    "contenu": content[:5000],
+                    "tronque": len(content) > 5000
+                }
+            except Exception as e:
+                return {"error": f"Erreur lecture: {e}"}
+
+        elif func_name == "modifier_code":
+            fichier = args.get("fichier", "")
+            contenu = args.get("contenu", "")
+            raison = args.get("raison", "")
+            base_path = self.config.data_path.parent
+            filepath = (base_path / fichier).resolve()
+            if not str(filepath).startswith(str(base_path)):
+                return {"error": "Accès refusé: chemin hors du projet"}
+            allowed_prefixes = ["strategies/", "core/system_prompt.py"]
+            if not any(fichier.startswith(p) or fichier == p for p in allowed_prefixes):
+                return {"error": f"Seuls strategies/ et core/system_prompt.py peuvent être modifiés. Chemin: '{fichier}'"}
+            try:
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                filepath.write_text(contenu, encoding='utf-8')
+                self.memory.add_observation(
+                    category="code_modification",
+                    content=f"Modified {fichier} via chat: {raison}",
+                    relevance="high"
+                )
+                return {
+                    "status": "ok",
+                    "message": f"Fichier '{fichier}' modifié: {raison}",
+                    "taille": len(contenu)
+                }
+            except Exception as e:
+                return {"error": f"Erreur écriture: {e}"}
 
         else:
             return {"error": f"Outil '{func_name}' non autorisé en mode chat"}

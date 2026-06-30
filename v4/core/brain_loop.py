@@ -34,7 +34,7 @@ class BrainLoop:
         self.portfolio = portfolio
         self.memory = memory
         self.exchanges = exchanges
-        self.brain = Brain(config)
+        self.brain = Brain(config, memory=memory)
         self.observer = Observer(config, exchanges)
         self.strategy_loader = StrategyLoader(config.strategies_path)
         self.backtester = Backtester()

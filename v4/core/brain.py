@@ -195,13 +195,55 @@ TOOL_DEFINITIONS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "lire_code",
+            "description": "Lire un fichier de ton propre code source. Utile pour comprendre comment tu fonctionnes, diagnostiquer un bug, ou trouver comment améliorer un outil. Chemins: strategies/, core/, dashboard/",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fichier": {
+                        "type": "string",
+                        "description": "Chemin du fichier, ex: 'core/brain_loop.py' ou 'strategies/ema_crossover_v1.py' ou 'core/system_prompt.py'"
+                    }
+                },
+                "required": ["fichier"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "modifier_code",
+            "description": "Modifier ou créer un fichier dans ton propre code source. Tu peux corriger des bugs, améliorer des outils, ajouter des fonctionnalités, ou créer de nouvelles stratégies. NE JAMAIS modifier les fichiers core/ sauf pour corriger un bug critique.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fichier": {
+                        "type": "string",
+                        "description": "Chemin du fichier, ex: 'strategies/nouvelle_strat.py' ou 'core/system_prompt.py'"
+                    },
+                    "contenu": {
+                        "type": "string",
+                        "description": "Contenu complet du fichier (sera écrit tel quel)"
+                    },
+                    "raison": {
+                        "type": "string",
+                        "description": "Pourquoi cette modification"
+                    }
+                },
+                "required": ["fichier", "contenu", "raison"]
+            }
+        }
+    },
 ]
 
 
 class Brain:
     """LLM brain that makes decisions using function calling."""
 
-    def __init__(self, config: PicsouConfig):
+    def __init__(self, config: PicsouConfig, memory=None):
         self.config = config
         self.url = config.llm.url
         self.api_key = config.llm.api_key
@@ -210,6 +252,7 @@ class Brain:
         self.max_tokens = config.llm.max_tokens
         self.last_prompt = ""
         self.last_response = ""
+        self.memory = memory
 
     def think(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Send context to LLM and get decisions back.
@@ -379,6 +422,64 @@ class Brain:
 
         elif func_name == "voir_memoire":
             return context.get("memory", {})
+
+        elif func_name == "lire_code":
+            fichier = args.get("fichier", "")
+            # Security: only allow reading within the project
+            base_path = self.config.data_path.parent  # project root
+            filepath = (base_path / fichier).resolve()
+            # Prevent path traversal
+            if not str(filepath).startswith(str(base_path)):
+                return {"error": "Accès refusé: chemin hors du projet"}
+            if not filepath.exists():
+                return {"error": f"Fichier '{fichier}' non trouvé"}
+            if not filepath.suffix == '.py' and filepath.name not in ('system_prompt.py',):
+                # Allow .py files and system_prompt
+                pass
+            try:
+                content = filepath.read_text(encoding='utf-8')
+                lines = content.split('\n')
+                return {
+                    "fichier": fichier,
+                    "lignes": len(lines),
+                    "contenu": content[:5000],  # Limit to 5000 chars
+                    "tronque": len(content) > 5000
+                }
+            except Exception as e:
+                return {"error": f"Erreur lecture: {e}"}
+
+        elif func_name == "modifier_code":
+            fichier = args.get("fichier", "")
+            contenu = args.get("contenu", "")
+            raison = args.get("raison", "")
+            # Security: only allow modifying strategies/ and core/system_prompt.py
+            base_path = self.config.data_path.parent
+            filepath = (base_path / fichier).resolve()
+            # Prevent path traversal and restrict writable paths
+            if not str(filepath).startswith(str(base_path)):
+                return {"error": "Accès refusé: chemin hors du projet"}
+            allowed_prefixes = ["strategies/", "core/system_prompt.py"]
+            if not any(fichier.startswith(p) or fichier == p for p in allowed_prefixes):
+                return {"error": f"Seuls les fichiers strategies/ et core/system_prompt.py peuvent être modifiés. Chemin demandé: '{fichier}'"}
+            try:
+                filepath.parent.mkdir(parents=True, exist_ok=True)
+                filepath.write_text(contenu, encoding='utf-8')
+                # Record the modification in memory
+                if self.memory:
+                    self.memory.add_observation(
+                        category="code_modification",
+                        content=f"Modified {fichier}: {raison}",
+                        relevance="high"
+                    )
+                logger.info("Code modified by LLM: %s — %s", fichier, raison)
+                return {
+                    "status": "ok",
+                    "message": f"Fichier '{fichier}' modifié avec succès",
+                    "raison": raison,
+                    "taille": len(contenu)
+                }
+            except Exception as e:
+                return {"error": f"Erreur écriture: {e}"}
 
         else:
             # These tools are handled by the caller (heartbeat or brain loop)
