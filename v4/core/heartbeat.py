@@ -237,7 +237,7 @@ class Heartbeat:
                         logger.warning("MAX-PER-ASSET: Cannot find price for %s, skipping close", pos.symbol)
                         continue
 
-                    logger.warning("MAX-PER-ASSET: Closing excess position #%d %s @ %.2f (current=%.2f)",
+                    logger.warning("MAX-PER-ASSET: Closing excess position #%s %s @ %.2f (current=%.2f)",
                                   pos.id, pos.symbol, pos.entry_price, current_price)
                     trade = self.portfolio.close_position(pos.id, current_price)
                     if trade:
