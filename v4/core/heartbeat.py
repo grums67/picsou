@@ -174,15 +174,14 @@ class Heartbeat:
                                    pos.symbol, unrealized_pnl_pct * 100, pos.entry_price, current_price)
                     trade = self.portfolio.close_position(pos.id, current_price)
                     if trade:
+                        self.memory.close_trade(
+                            trade_id=int(pos.id), close_price=current_price,
+                            pnl=trade.get("pnl", 0),
+                        )
                         self.memory.add_observation(
                             category="stop_loss",
                             content=f"Stop-loss triggered for {pos.symbol} at {unrealized_pnl_pct*100:.1f}%",
                             relevance="high"
-                        )
-                        self.memory.log_trade(
-                            exchange=pos.exchange, symbol=pos.symbol, side="sell",
-                            amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
-                            strategy=pos.strategy, confidence=0, reasoning="Stop-loss at -10%",
                         )
 
                 # Take-profit at +10%
@@ -191,6 +190,10 @@ class Heartbeat:
                                 pos.symbol, unrealized_pnl_pct * 100, pos.entry_price, current_price)
                     trade = self.portfolio.close_position(pos.id, current_price)
                     if trade:
+                        self.memory.close_trade(
+                            trade_id=int(pos.id), close_price=current_price,
+                            pnl=trade.get("pnl", 0),
+                        )
                         self.memory.add_observation(
                             category="take_profit",
                             content=f"Take-profit triggered for {pos.symbol} at +{unrealized_pnl_pct*100:.1f}%",
@@ -198,11 +201,6 @@ class Heartbeat:
                         )
                         self.memory.add_lesson(
                             lesson=f"Take-profit à +{unrealized_pnl_pct*100:.1f}% sur {pos.symbol} — bien joué de prendre ses gains",
-                        )
-                        self.memory.log_trade(
-                            exchange=pos.exchange, symbol=pos.symbol, side="sell",
-                            amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
-                            strategy=pos.strategy, confidence=0.8, reasoning=f"Take-profit at +{unrealized_pnl_pct*100:.1f}%",
                         )
     def _enforce_max_per_asset(self, market_data: Dict):
         """Enforce max 2 positions per asset. Close excess positions (oldest first)."""
@@ -241,14 +239,14 @@ class Heartbeat:
                                   pos.id, pos.symbol, pos.entry_price, current_price)
                     trade = self.portfolio.close_position(pos.id, current_price)
                     if trade:
+                        # Mark the original trade as closed in DB
+                        self.memory.close_trade(
+                            trade_id=int(pos.id),
+                            close_price=current_price,
+                            pnl=trade.get("pnl", 0),
+                        )
                         self.memory.add_observation(
                             category="safety",
                             content=f"Position {pos.symbol} #{pos.id} fermée: max {MAX_PER_ASSET} par actif dépassé ({len(pos_list)} positions)",
                             relevance="high"
-                        )
-                        self.memory.log_trade(
-                            exchange=pos.exchange, symbol=pos.symbol, side="sell",
-                            amount=pos.amount, price=current_price, fee=trade.get("fee", 0),
-                            strategy=pos.strategy, confidence=0,
-                            reasoning=f"Safety: max {MAX_PER_ASSET} positions par actif dépassé",
                         )
