@@ -219,9 +219,9 @@ class Heartbeat:
 
         for symbol, pos_list in by_symbol.items():
             if len(pos_list) > MAX_PER_ASSET:
-                # Sort by entry price descending (close worst entries first)
-                excess = sorted(pos_list, key=lambda p: p.entry_price, reverse=True)
-                to_close = excess[MAX_PER_ASSET:]  # Keep the 2 best entries
+                # Sort by entry price ascending (keep cheapest entries, close most expensive)
+                excess = sorted(pos_list, key=lambda p: p.entry_price)
+                to_close = excess[MAX_PER_ASSET:]  # Keep the 2 cheapest, close the rest
 
                 for pos in to_close:
                     # Find current price
