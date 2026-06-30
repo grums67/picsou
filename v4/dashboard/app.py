@@ -116,19 +116,50 @@ def get_v4_portfolio() -> dict:
 
         # Open positions are trades with status='open'
         open_positions = []
+        # Fetch current prices from exchange API for unrealized PnL
+        current_prices = {}
+        try:
+            import requests
+            symbols_needed = set(t["symbol"] for t in trades_rows if t["status"] == "open")
+            for sym in symbols_needed:
+                inst_id = sym.replace("-", "-")
+                try:
+                    resp = requests.get(f"https://www.okx.com/api/v5/market/ticker?instId={inst_id}", timeout=5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("data"):
+                            current_prices[sym] = float(data["data"][0]["last"])
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         for t in trades_rows:
             if t["status"] == "open":
+                entry_price = float(t["price"] or 0)
+                amount = float(t["amount"] or 0)
+                fee = float(t["fee"] or 0)
+                sym = t["symbol"]
+                cur_price = current_prices.get(sym, entry_price)
+                # Compute unrealized PnL for open positions
+                if t["side"] == "buy":
+                    unrealized_pnl = (cur_price - entry_price) * amount - fee
+                else:
+                    unrealized_pnl = (entry_price - cur_price) * amount - fee
+
                 pos = {
                     "id": t["id"],
                     "timestamp": t["timestamp"],
                     "exchange": t["exchange"],
                     "symbol": t["symbol"],
                     "side": t["side"],
-                    "amount": float(t["amount"] or 0),
-                    "entry_price": float(t["price"] or 0),
-                    "fee": float(t["fee"] or 0),
+                    "amount": amount,
+                    "entry_price": entry_price,
+                    "current_price": cur_price,
+                    "fee": fee,
                     "strategy": t["strategy"],
-                    "pnl": float(t["pnl"] or 0),
+                    "pnl": round(unrealized_pnl, 2),
+                    "pnl_pct": round(unrealized_pnl / (entry_price * amount) * 100, 2) if entry_price * amount > 0 else 0,
                     "status": t["status"],
                 }
                 open_positions.append(pos)
@@ -145,7 +176,7 @@ def get_v4_portfolio() -> dict:
         realized_pnl = sum(float(t["pnl"] or 0) for t in trades_rows if t["status"] == "closed")
         result["realized_pnl"] = realized_pnl
         total_value = result["balance"] + sum(
-            float(p["amount"]) * float(p["entry_price"]) for p in open_positions
+            float(p["amount"]) * float(p.get("current_price", p["entry_price"])) for p in open_positions
         )
         result["pnl"] = total_value - result["starting_capital"]
         result["pnl_pct"] = (result["pnl"] / result["starting_capital"] * 100) if result["starting_capital"] else 0.0
