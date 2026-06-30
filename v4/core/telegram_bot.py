@@ -325,11 +325,12 @@ class PicsouTelegramBot:
 
         # Call LLM with tool support (up to 5 rounds of tool calling)
         from .brain import TOOL_DEFINITIONS
-        # Chat tools: vendre (close positions) but not acheter (no impulsive buys from chat)
+        # Chat tools: full autonomy — vendre, acheter, strategie, observation, memoire
         chat_tools = [t for t in TOOL_DEFINITIONS
                       if t["function"]["name"] in (
                           "voir_marche", "voir_portefeuille", "voir_memoire",
-                          "ecrire_memoire", "ajuster_poids", "vendre"
+                          "ecrire_memoire", "ajuster_poids", "vendre", "acheter",
+                          "ecrire_strategie", "tester_strategie"
                       )]
 
         for round_num in range(5):
@@ -580,6 +581,120 @@ class PicsouTelegramBot:
                 }
             else:
                 return {"error": f"Impossible de vendre {symbole} — aucune position ouverte ou erreur"}
+
+        elif func_name == "acheter":
+            symbole = args.get("symbole", "BTC")
+            taille_pct = args.get("taille_pct", 0.05)
+            confiance = args.get("confiance", 0.5)
+            strategie = args.get("strategie", "manual")
+            raison = args.get("raison", "achat via chat")
+
+            # Guardrail: max 20% per position
+            taille_pct = min(taille_pct, 0.20)
+
+            trade_decision = {
+                "action": "buy",
+                "symbol": symbole.upper(),
+                "size_pct": taille_pct,
+                "confidence": confiance,
+                "strategy": strategie,
+                "reasoning": raison,
+            }
+            results = self.executor.execute([trade_decision], self.exchanges)
+            if results:
+                self.memory.add_observation(
+                    category="telegram_trade",
+                    content=f"Achat {symbole} via chat: {raison} (taille={taille_pct*100:.0f}%)",
+                    relevance="high"
+                )
+                return {
+                    "status": "ok",
+                    "message": f"Achat {symbole} exécuté ({taille_pct*100:.0f}% du capital)",
+                    "details": str(results)
+                }
+            else:
+                return {"error": f"Impossible d'acheter {symbole} — vérifier balance ou symbole"}
+
+        elif func_name == "ecrire_strategie":
+            nom = args.get("nom", "")
+            code = args.get("code", "")
+            description = args.get("description", "")
+
+            if not nom or not code:
+                return {"error": "Nom et code requis pour créer une stratégie"}
+
+            # Write strategy file
+            import re
+            safe_name = re.sub(r'[^a-zA-Z0-9_]', '', nom.lower().replace(' ', '_'))
+            filepath = self.config.strategies_path / f"{safe_name}.py"
+
+            try:
+                filepath.write_text(code, encoding='utf-8')
+                self.memory.add_observation(
+                    category="strategy_created",
+                    content=f"Stratégie '{nom}' créée via chat: {description}",
+                    relevance="high"
+                )
+                return {
+                    "status": "ok",
+                    "message": f"Stratégie '{nom}' écrite dans {filepath.name}",
+                    "filepath": str(filepath)
+                }
+            except Exception as e:
+                return {"error": f"Erreur écriture stratégie: {e}"}
+
+        elif func_name == "tester_strategie":
+            nom = args.get("nom", "")
+            symbole = args.get("symbole", "BTC")
+            jours = args.get("jours", 30)
+
+            if not nom:
+                return {"error": "Nom de stratégie requis pour le backtest"}
+
+            # Find strategy file
+            import re
+            safe_name = re.sub(r'[^a-zA-Z0-9_]', '', nom.lower().replace(' ', '_'))
+            filepath = self.config.strategies_path / f"{safe_name}.py"
+
+            if not filepath.exists():
+                return {"error": f"Stratégie '{nom}' non trouvée ({filepath.name})"}
+
+            # Run backtest via brain_loop
+            try:
+                from .brain_loop import BrainLoop
+                bl = BrainLoop(self.config, self.memory, self.portfolio, self.exchanges)
+                candles = bl._get_candles(symbole, jours * 24)
+                if not candles:
+                    return {"error": f"Pas de données pour {symbole} sur {jours} jours"}
+
+                # Load and run strategy
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(safe_name, filepath)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+
+                if not hasattr(mod, 'signal'):
+                    return {"error": f"La stratégie '{nom}' n'a pas de fonction signal()"}
+
+                results = []
+                for i, c in enumerate(candles):
+                    signal = mod.signal({"candles": candles[:i+1]}, self.portfolio.get_state(), self.memory)
+                    if signal and signal.get("action") in ("buy", "sell"):
+                        results.append({"index": i, "action": signal["action"], "symbol": signal.get("symbol", symbole)})
+
+                self.memory.add_observation(
+                    category="backtest",
+                    content=f"Backtest '{nom}' sur {symbole} ({jours}j): {len(results)} signaux générés",
+                    relevance="medium"
+                )
+                return {
+                    "status": "ok",
+                    "message": f"Backtest '{nom}' sur {symbole} ({jours}j): {len(results)} signaux",
+                    "signals": results[:20],
+                    "total_signals": len(results)
+                }
+            except Exception as e:
+                return {"error": f"Erreur backtest: {e}"}
 
         else:
             return {"error": f"Outil '{func_name}' non autorisé en mode chat"}
