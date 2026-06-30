@@ -119,23 +119,62 @@ class BrainLoop:
 
         elif action in ("buy", "sell"):
             # LLM wants to trade — execute via the Executor
-            trade_decision = {
-                "action": action,
-                "symbol": decision.get("symbol", "BTC"),
-                "size_pct": decision.get("size_pct", 0.05),
-                "confidence": decision.get("confidence", 0.5),
-                "strategy": decision.get("strategy", "brain"),
-                "reasoning": decision.get("reasoning", ""),
-            }
-            executed = self.executor.execute([trade_decision], self.exchanges)
-            if executed:
-                logger.info("Brain trade executed: %s %s — %s",
-                            action.upper(), trade_decision["symbol"], executed)
-                results["trades"] = executed
-            else:
-                logger.info("Brain trade not executed (safety or no match): %s %s",
-                            action, trade_decision["symbol"])
+            symbol = decision.get("symbol", "BTC")
+            nombre = decision.get("nombre", "1")
+            
+            if action == "sell" and nombre != "1":
+                # Close multiple positions for the same symbol
+                import re
+                def _base(sym):
+                    return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
+                base = _base(symbol.upper())
+                matching = [p for p in self.portfolio.get_open_positions()
+                            if _base(p.symbol) == base and p.side == "long"]
+                
+                if nombre == "tout":
+                    to_close = matching
+                else:
+                    try:
+                        n = int(nombre)
+                    except ValueError:
+                        n = 1
+                    to_close = matching[:n]
+                
                 results["trades"] = []
+                for pos in to_close:
+                    trade_decision = {
+                        "action": "sell",
+                        "symbol": symbol,
+                        "size_pct": 1.0,
+                        "confidence": decision.get("confidence", 0.5),
+                        "strategy": decision.get("strategy", "brain"),
+                        "reasoning": decision.get("reasoning", ""),
+                    }
+                    executed = self.executor.execute([trade_decision], self.exchanges)
+                    if executed:
+                        logger.info("Brain trade executed: SELL %s — %s", symbol, executed)
+                        results["trades"].extend(executed if isinstance(executed, list) else [executed])
+                
+                if not results["trades"]:
+                    logger.info("Brain sell not executed (no matching positions): SELL %s", symbol)
+            else:
+                trade_decision = {
+                    "action": action,
+                    "symbol": symbol,
+                    "size_pct": decision.get("size_pct", 0.05),
+                    "confidence": decision.get("confidence", 0.5),
+                    "strategy": decision.get("strategy", "brain"),
+                    "reasoning": decision.get("reasoning", ""),
+                }
+                executed = self.executor.execute([trade_decision], self.exchanges)
+                if executed:
+                    logger.info("Brain trade executed: %s %s — %s",
+                                action.upper(), trade_decision["symbol"], executed)
+                    results["trades"] = executed
+                else:
+                    logger.info("Brain trade not executed (safety or no match): %s %s",
+                                action, trade_decision["symbol"])
+                    results["trades"] = []
 
         elif action == "create_strategy":
             # LLM wants to create a new strategy

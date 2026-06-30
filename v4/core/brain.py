@@ -99,11 +99,16 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "vendre",
-            "description": "Fermer une position long sur un symbole",
+            "description": "Fermer des positions long sur un symbole. Par défaut ferme 1 position. Utilise nombre='tout' pour fermer TOUTES les positions du symbole.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "symbole": {"type": "string", "description": "Symbole, ex: BTC"},
+                    "nombre": {
+                        "type": "string",
+                        "description": "Nombre de positions à fermer: '1', '2', '3' ou 'tout'",
+                        "default": "1"
+                    },
                     "confiance": {
                         "type": "number",
                         "description": "Niveau de confiance (0.0 à 1.0)"

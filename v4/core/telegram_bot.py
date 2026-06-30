@@ -521,31 +521,57 @@ class PicsouTelegramBot:
             symbole = args.get("symbole", "")
             raison = args.get("raison", "")
             confiance = args.get("confiance", 0.7)
+            nombre = args.get("nombre", "1")
 
             if not symbole:
                 return {"error": "Symbole requis pour la vente"}
 
-            # Execute sell via the executor
-            trade_decision = {
-                "action": "sell",
-                "symbol": symbole.upper(),
-                "size_pct": 1.0,  # Close all positions for this symbol
-                "confidence": confiance,
-                "strategy": "telegram_chat",
-                "reasoning": raison,
-            }
-            executed = self.executor.execute([trade_decision], self.exchanges)
+            # Determine how many positions to close
+            import re
+            def _base(sym):
+                return re.sub(r'[-_/]?[Uu][Ss][Dd][Tt]$', '', sym)
 
-            if executed:
+            base = _base(symbole.upper())
+            matching = [p for p in self.portfolio.get_open_positions()
+                        if _base(p.symbol) == base and p.side == "long"]
+
+            if not matching:
+                return {"error": f"Aucune position ouverte sur {symbole}"}
+
+            if nombre == "tout":
+                to_close = matching
+            else:
+                try:
+                    n = int(nombre)
+                except ValueError:
+                    n = 1
+                to_close = matching[:n]
+
+            results = []
+            for pos in to_close:
+                trade_decision = {
+                    "action": "sell",
+                    "symbol": symbole.upper(),
+                    "size_pct": 1.0,
+                    "confidence": confiance,
+                    "strategy": "telegram_chat",
+                    "reasoning": raison,
+                }
+                executed = self.executor.execute([trade_decision], self.exchanges)
+                if executed:
+                    results.append(executed)
+
+            if results:
                 self.memory.add_observation(
                     category="telegram_trade",
-                    content=f"Vente {symbole} via chat: {raison}",
+                    content=f"Vente {len(results)} position(s) {symbole} via chat: {raison}",
                     relevance="high"
                 )
                 return {
                     "status": "ok",
-                    "message": f"Vente {symbole} exécutée",
-                    "details": str(executed)
+                    "message": f"Vente {len(results)} position(s) {symbole} exécutée(s)",
+                    "positions_fermees": len(results),
+                    "details": str(results)
                 }
             else:
                 return {"error": f"Impossible de vendre {symbole} — aucune position ouverte ou erreur"}
