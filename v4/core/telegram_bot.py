@@ -293,14 +293,35 @@ class PicsouTelegramBot:
 
         logger.info("Telegram message from %s (id=%d): %s", user.username, user.id, text[:100])
 
-        # Show "typing" indicator
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        # Keep "typing" indicator alive while processing (expires every 5s on Telegram)
+        import asyncio
+        typing_stop = asyncio.Event()
+        chat_id = update.effective_chat.id
 
+        async def keep_typing():
+            while not typing_stop.is_set():
+                try:
+                    await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+                except Exception:
+                    pass
+                await asyncio.sleep(4)  # Refresh every 4s (Telegram expires at 5s)
+
+        typing_task = asyncio.create_task(keep_typing())
         try:
             # Process the message through Picsou's brain
-            response = self._process_message(user.id, text)
+            response = await asyncio.to_thread(self._process_message, user.id, text)
+            typing_stop.set()
+            try:
+                await typing_task
+            except Exception:
+                pass
             await update.message.reply_text(response)
         except Exception as e:
+            typing_stop.set()
+            try:
+                await typing_task
+            except Exception:
+                pass
             logger.error("Error processing Telegram message: %s", e, exc_info=True)
             await update.message.reply_text(f"❌ Oups, erreur interne : {e}")
 
