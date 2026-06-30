@@ -21,9 +21,11 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from .config import PicsouConfig
 from .brain import Brain
+from .executor import Executor
 from .memory import Memory
 from .portfolio import Portfolio
 from .observer import Observer
+from .safety import Safety
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,7 @@ class PicsouTelegramBot:
         self.exchanges = exchanges
         self.observer = Observer(config, exchanges)
         self.brain = Brain(config)
+        self.executor = Executor(Safety(config), portfolio, memory)
         self.token = config.telegram.token
         self.authorized_users = set(config.telegram.authorized_user_ids) if config.telegram.authorized_user_ids else set()
         self._app: Optional[Application] = None
@@ -322,11 +325,11 @@ class PicsouTelegramBot:
 
         # Call LLM with tool support (up to 5 rounds of tool calling)
         from .brain import TOOL_DEFINITIONS
-        # Filter tools to only chat-safe ones (no buy/sell directly from chat)
+        # Chat tools: vendre (close positions) but not acheter (no impulsive buys from chat)
         chat_tools = [t for t in TOOL_DEFINITIONS
                       if t["function"]["name"] in (
                           "voir_marche", "voir_portefeuille", "voir_memoire",
-                          "ecrire_memoire", "ajuster_poids"
+                          "ecrire_memoire", "ajuster_poids", "vendre"
                       )]
 
         for round_num in range(5):
@@ -514,6 +517,39 @@ class PicsouTelegramBot:
                 "details": f"status={new_status}" if new_status else ""
             }
 
+        elif func_name == "vendre":
+            symbole = args.get("symbole", "")
+            raison = args.get("raison", "")
+            confiance = args.get("confiance", 0.7)
+
+            if not symbole:
+                return {"error": "Symbole requis pour la vente"}
+
+            # Execute sell via the executor
+            trade_decision = {
+                "action": "sell",
+                "symbol": symbole.upper(),
+                "size_pct": 1.0,  # Close all positions for this symbol
+                "confidence": confiance,
+                "strategy": "telegram_chat",
+                "reasoning": raison,
+            }
+            executed = self.executor.execute([trade_decision], self.exchanges)
+
+            if executed:
+                self.memory.add_observation(
+                    category="telegram_trade",
+                    content=f"Vente {symbole} via chat: {raison}",
+                    relevance="high"
+                )
+                return {
+                    "status": "ok",
+                    "message": f"Vente {symbole} exécutée",
+                    "details": str(executed)
+                }
+            else:
+                return {"error": f"Impossible de vendre {symbole} — aucune position ouverte ou erreur"}
+
         else:
             return {"error": f"Outil '{func_name}' non autorisé en mode chat"}
 
@@ -567,6 +603,22 @@ class PicsouTelegramBot:
         logger.info("Starting Picsou Telegram bot...")
         await app.initialize()
         await app.start()
+
+        # Register slash commands in Telegram UI
+        from telegram import BotCommand
+        commands = [
+            BotCommand("start", "🚀 Message de bienvenue"),
+            BotCommand("help", "📖 Aide et commandes disponibles"),
+            BotCommand("status", "📊 Portefeuille et PnL"),
+            BotCommand("market", "📈 Prix actuels (BTC, ETH, SOL)"),
+            BotCommand("trades", "💰 Derniers trades exécutés"),
+            BotCommand("lessons", "🧠 Leçons apprises"),
+            BotCommand("strategies", "⚙️ Stratégies et leurs stats"),
+            BotCommand("reset", "🔄 Réinitialiser la conversation"),
+        ]
+        await app.bot.set_my_commands(commands)
+        logger.info("Telegram commands registered")
+
         await app.updater.start_polling(drop_pending_updates=True)
         logger.info("Picsou Telegram bot is running!")
 

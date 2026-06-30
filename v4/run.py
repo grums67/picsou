@@ -126,6 +126,22 @@ def start_telegram_bot(config: PicsouConfig, memory: Memory,
         try:
             loop.run_until_complete(app.initialize())
             loop.run_until_complete(app.start())
+
+            # Register slash commands in Telegram UI
+            from telegram import BotCommand
+            commands = [
+                BotCommand("start", "🚀 Message de bienvenue"),
+                BotCommand("help", "📖 Aide et commandes disponibles"),
+                BotCommand("status", "📊 Portefeuille et PnL"),
+                BotCommand("market", "📈 Prix actuels (BTC, ETH, SOL)"),
+                BotCommand("trades", "💰 Derniers trades exécutés"),
+                BotCommand("lessons", "🧠 Leçons apprises"),
+                BotCommand("strategies", "⚙️ Stratégies et leurs stats"),
+                BotCommand("reset", "🔄 Réinitialiser la conversation"),
+            ]
+            loop.run_until_complete(app.bot.set_my_commands(commands))
+            logger.info("Telegram commands registered")
+
             loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
             logger.info("Telegram bot started — polling for messages")
             loop.run_forever()

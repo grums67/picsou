@@ -6,7 +6,7 @@ PIDFILE=/root/PROJECTS/picsou/v4/data/picsou.pid
 LOGFILE=/root/PROJECTS/picsou/v4/data/picsou_v4.log
 RESTART_COUNT_FILE=/root/PROJECTS/picsou/v4/data/restart_count
 MAX_RESTARTS_PER_HOUR=6
-HEALTH_URL="http://localhost:3035/api/health"
+HEALTH_URL="http://localhost:3038/api/health"
 
 mkdir -p /root/PROJECTS/picsou/v4/data
 
