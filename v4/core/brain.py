@@ -284,7 +284,10 @@ class Brain:
             # If no tool calls, return the final message
             if "tool_calls" not in message or not message["tool_calls"]:
                 # Parse the text response as a decision
-                content = message.get("content", "")
+                content = message.get("content", "") or ""
+                # Fallback for reasoning models: use reasoning field if content is empty
+                if not content.strip() and message.get("reasoning"):
+                    content = message["reasoning"]
                 self.last_response = content
                 return self._parse_decision(content)
 
@@ -301,7 +304,11 @@ class Brain:
         # If we exhausted tool call rounds, get final decision
         response = self._call_llm(messages, tools=None)
         if response:
-            content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            msg = response.get("choices", [{}])[0].get("message", {})
+            content = msg.get("content", "") or ""
+            # Fallback for reasoning models: use reasoning field if content is empty
+            if not content.strip() and msg.get("reasoning"):
+                content = msg["reasoning"]
             self.last_response = content
             return self._parse_decision(content)
 

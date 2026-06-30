@@ -369,6 +369,9 @@ class PicsouTelegramBot:
             # If no tool calls, we have a text response
             if "tool_calls" not in message or not message["tool_calls"]:
                 content = message.get("content", "") or ""
+                # Fallback for reasoning models: use reasoning field if content is empty
+                if not content.strip() and message.get("reasoning"):
+                    content = message["reasoning"]
                 # Fallback: if LLM returned empty content but we had tool results, summarize them
                 if not content.strip() and tool_results:
                     summary_parts = []
